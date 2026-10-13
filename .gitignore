@@ -38,3 +38,7 @@ woaiys3-app/.git/
 Codex-任务书.md
 docs/任务书.md
 .cache/
+
+# memory 插件的内部施工文档（不公开）
+memory/设计方案.md
+memory/摸清报告.md
