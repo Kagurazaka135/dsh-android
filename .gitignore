@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────
+# dsh-android · 只收「源码 + 插件 + 文档」
+# 大件 / 构建产物 / 密钥一律不进库（APK 用 Release 分发）
+# ─────────────────────────────────────────────
+
+# 构建中间产物 / 二进制
+devhome/
+woaiys3-app/android-app/staging/
+woaiys3-app/android-app/out/
+woaiys3-app/android-app/assets/
+**/staging/
+**/out/
+*.apk
+*.zip
+*.log
+*.exe
+
+# 密钥 / 口令（绝不进库）
+SIGNING.md
+build.local.sh
+*.jks
+*.keystore
+.env
+
+# 依赖
+node_modules/
+
+# 上游 fork 的 git 历史（本库自带一份）
+woaiys3-app/.git/
+
+# 本地 AI 记忆 / 编辑器
+.claude/
+.idea/
+.vscode/
+.DS_Store
+
+# 内部协调文档（不进公开库）
+Codex-任务书.md
+docs/任务书.md
+.cache/
