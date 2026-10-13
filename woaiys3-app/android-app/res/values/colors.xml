@@ -12,6 +12,9 @@
     <!-- 品牌色（DSH 品牌蓝：小鲸鱼、主按钮、强调文字共用；改名/换品牌只改这里） -->
     <color name="accent_brand">#4D6BFE</color>
 
+    <!-- 桌面图标底色（自适应图标 background，取自图标插画的米色底） -->
+    <color name="ic_launcher_background">#FCF8ED</color>
+
     <!-- 壳背景（深色主题 / 浅色主题；styles.xml 的 windowBackground 也引用这里） -->
     <color name="shell_bg_dark">#0B0F1A</color>
     <color name="shell_bg_light">#F7F8FB</color>
