@@ -36,6 +36,7 @@ woaiys3-app/.git/
 
 # 内部协调文档（不进公开库）
 Codex-任务书.md
+ZCode-*.md
 docs/任务书.md
 .cache/
 
