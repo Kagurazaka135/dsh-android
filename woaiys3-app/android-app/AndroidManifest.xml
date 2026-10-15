@@ -79,12 +79,13 @@
 
         <!-- v1.20.0 语音服务（B 路线）：本地 3280 桥（TTS / 听写 / 录音 / 唤醒 / 事件流），
              随引擎启动、随退出停止；麦克风采集期间靠前台通知维持。
-             foregroundServiceType 声明 dataSync 而非 microphone：那需要 API 29+，
-             targetSdk 28 上写了也是 no-op，等 SDK 门槛放开再换。 -->
+             foregroundServiceType 改 microphone：常驻开麦（KWS/VAD）的前台服务必须声明
+             microphone 类型；旧写 dataSync 靠 targetSdk 28 豁免，提 SDK / 部分 ROM 会静默
+             掐麦（2026-10-15 真机报告 T10）。targetSdk 仍钉 28（≥29 私有目录 noexec）。 -->
         <service
             android:name=".VoiceService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="microphone" />
 
         <!-- 铏氭嫙灞忔帴鍏ユˉ锛氬惎鍔?Operit server + HTTP->binder 杞彂锛堟彃浠?API锛?-->
         <service
