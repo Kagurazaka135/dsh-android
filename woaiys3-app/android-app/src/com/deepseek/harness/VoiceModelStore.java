@@ -1,6 +1,8 @@
 package com.deepseek.harness;
 
 import android.content.Context;
+import android.os.Environment;
+import android.util.Log;
 
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
@@ -8,19 +10,24 @@ import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /** Downloads and verifies the optional offline voice models into the app-private filesDir. */
 final class VoiceModelStore {
+    private static final String LOG_TAG = "dsh-voice";
     private static final String SENSE_REV = "2365baeacb507f821a0c8120fcee3d484dba7a07";
     private static final String SENSE_BASE = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/" + SENSE_REV + "/";
     private static final String SENSE_MODEL_SHA = "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51";
@@ -30,6 +37,14 @@ final class VoiceModelStore {
 
     private static final String KWS_ARCHIVE_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2";
     private static final String KWS_DIR = "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile";
+
+    // 国内直连 huggingface.co / github.com 大概率不可达（2026-10-15 真机实证：模型从未下载成功）。
+    // 下载走「镜像优先、原源兜底」的候选链；镜像写成模板，{url}=完整原 URL，{path}=主机名后的路径。
+    // 镜像列表可不重编追加：/sdcard/<pkgRoot>/voice/mirrors.txt，每行 `hf|gh <模板>`，# 开头为注释。
+    private static final String ORIG_HF = "https://huggingface.co/";
+    private static final String ORIG_GH = "https://github.com/";
+    private static final String[] HF_MIRROR_TEMPLATES = { "https://hf-mirror.com/{path}" };
+    private static final String[] GH_MIRROR_TEMPLATES = { "https://ghfast.top/{url}", "https://gh-proxy.com/{url}" };
 
     private static final Object ASR_LOCK = new Object();
     private static final Object KWS_LOCK = new Object();
@@ -103,11 +118,22 @@ final class VoiceModelStore {
             asrError = "";
             File dir = senseDir(context);
             if (!dir.exists() && !dir.mkdirs()) throw new IOException("无法创建 SenseVoice 模型目录");
-            download(new URL(SENSE_BASE + "model.int8.onnx"), new File(dir, "model.int8.onnx"), SENSE_MODEL_BYTES, SENSE_MODEL_SHA);
-            download(new URL(SENSE_BASE + "tokens.txt"), new File(dir, "tokens.txt"), SENSE_TOKENS_BYTES, SENSE_TOKENS_SHA);
-            asrVerified = true;
-            asrState = "ready";
-            return true;
+            List<String> modelSources = candidateUrls(context, ORIG_HF, SENSE_BASE + "model.int8.onnx");
+            List<String> tokenSources = candidateUrls(context, ORIG_HF, SENSE_BASE + "tokens.txt");
+            IOException last = null;
+            for (int i = 0; i < modelSources.size(); i++) {
+                try {
+                    download(new URL(modelSources.get(i)), new File(dir, "model.int8.onnx"), SENSE_MODEL_BYTES, SENSE_MODEL_SHA);
+                    download(new URL(tokenSources.get(i)), new File(dir, "tokens.txt"), SENSE_TOKENS_BYTES, SENSE_TOKENS_SHA);
+                    asrVerified = true;
+                    asrState = "ready";
+                    return true;
+                } catch (IOException e) {
+                    last = e;
+                    Log.w(LOG_TAG, "SenseVoice 下载源失败（第 " + (i + 1) + "/" + modelSources.size() + " 个候选）：" + e.getMessage());
+                }
+            }
+            throw last != null ? last : new IOException("无可用下载源");
         }
     }
 
@@ -119,14 +145,74 @@ final class VoiceModelStore {
             File dir = kwsDir(context);
             if (!dir.exists() && !dir.mkdirs()) throw new IOException("无法创建 KWS 模型目录");
             File archive = new File(dir.getParentFile(), "kws-model.tar.bz2.part");
-            download(new URL(KWS_ARCHIVE_URL), archive, -1L, null);
-            extractKwsArchive(archive, dir);
-            writeWakeKeywords(new File(dir, "keywords.txt"));
-            archive.delete();
-            if (!kwsReady(context)) throw new IOException("KWS 模型文件不完整");
-            kwsState = "ready";
-            return true;
+            List<String> sources = candidateUrls(context, ORIG_GH, KWS_ARCHIVE_URL);
+            IOException last = null;
+            for (int i = 0; i < sources.size(); i++) {
+                try {
+                    download(new URL(sources.get(i)), archive, -1L, null);
+                    extractKwsArchive(archive, dir);
+                    writeWakeKeywords(new File(dir, "keywords.txt"));
+                    archive.delete();
+                    if (!kwsReady(context)) throw new IOException("KWS 模型文件不完整");
+                    kwsState = "ready";
+                    return true;
+                } catch (IOException e) {
+                    last = e;
+                    Log.w(LOG_TAG, "KWS 下载源失败（第 " + (i + 1) + "/" + sources.size() + " 个候选）：" + e.getMessage());
+                    // KWS 包无 SHA 兜底，跨源续传可能拼出"能解压但内容烂"的包 → 换源前清残件重下
+                    new File(archive.getAbsolutePath() + ".part").delete();
+                    archive.delete();
+                }
+            }
+            throw last != null ? last : new IOException("无可用下载源");
         }
+    }
+
+    /**
+     * 构建一个文件的候选下载 URL 列表：用户配置镜像 → 内建镜像 → 原源。
+     * kind = ORIG_HF（huggingface）或 ORIG_GH（github releases），决定模板按 {path}/{url} 哪种展开。
+     */
+    private static List<String> candidateUrls(Context context, String kind, String originalUrl) {
+        List<String> out = new ArrayList<String>();
+        String path = originalUrl.startsWith(kind) ? originalUrl.substring(kind.length()) : originalUrl;
+        for (String tpl : userMirrors(context, kind)) {
+            String u = tpl.replace("{url}", originalUrl).replace("{path}", path);
+            if (u.startsWith("http")) out.add(u);
+        }
+        for (String tpl : ORIG_HF.equals(kind) ? HF_MIRROR_TEMPLATES : GH_MIRROR_TEMPLATES) {
+            out.add(tpl.replace("{url}", originalUrl).replace("{path}", path));
+        }
+        out.add(originalUrl);
+        return out;
+    }
+
+    /** 读 /sdcard/<pkgRoot>/voice/mirrors.txt 的自定义镜像（每行 `hf|gh <模板>`），失败/不存在返回空。 */
+    private static List<String> userMirrors(Context context, String kind) {
+        List<String> out = new ArrayList<String>();
+        try {
+            File base = new File(Environment.getExternalStorageDirectory(), pkgRoot(context) + "/voice");
+            File file = new File(base, "mirrors.txt");
+            if (!file.isFile()) return out;
+            BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"));
+            String line;
+            while ((line = in.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                int space = line.indexOf(' ');
+                String tag = space > 0 ? line.substring(0, space).trim().toLowerCase() : "";
+                String tpl = space > 0 ? line.substring(space + 1).trim() : "";
+                boolean match = ORIG_HF.equals(kind) ? "hf".equals(tag) : "gh".equals(tag);
+                if (match && tpl.startsWith("http")) out.add(tpl);
+            }
+            in.close();
+        } catch (Throwable ignored) {}
+        return out;
+    }
+
+    private static String pkgRoot(Context context) {
+        String p = context.getPackageName();
+        return p.contains("beta") ? "DeepSeekHarnessLite"
+                : p.contains("compat") ? "DeepSeekHarnessCompat" : "DeepSeekHarness";
     }
 
     private static void download(URL url, File target, long expectedBytes, String expectedSha) throws IOException {
