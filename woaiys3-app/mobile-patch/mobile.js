@@ -224,3 +224,62 @@
       { passive: false, capture: true });
   });
 })();
+
+/**
+ * 冷启动落点矫正 v1.0——冷启动必落「会话页 + chat 视图」（对应 APK v1.21.3 / 真机报告 T1）
+ *
+ * 问题：App 冷启动后 WebView 落在哪由前端 localStorage 决定，App 壳无法用 URL 指定
+ *   （DSH 前端没有 URL 路由，?token= 还会被服务端 303 剥掉）。真机实测「每次都落会话页」
+ *   只是碰巧：一旦上次停在别的面板（subagent 视图 / 设置页）或非 chat 视图
+ *   （开发者工具开启时的 trajectory「改动记录」页），冷启动就会恢复那个页，
+ *   用户得手动点回会话——2026-10-15 真机测试方案 T1 的原始症状。
+ *
+ * 成因（0.2.0-rc.2 前端实据，payload bundle 内逐条核对）：
+ *   ① dsh.sessions.current（localStorage，JSON {sessionId, subagentAddress?}）——
+ *      恢复时若带 subagentAddress 会先 replaceMain 到 subagent 视图（ui-workspace
+ *      navigation.js restoreSelection 开头分支），绕过「默认渲染会话页」路径；
+ *   ② dsh.conversation.<sessionId>（JSON {draft, view}）—— view 记住会话内 tab，
+ *      resolveActiveView 只在存档值"没注册"时才回退 chat；trajectory tab 注册了
+ *      （开发者工具开启时）就会被恢复 = 当年「停在改动记录页」的来源。
+ *   主面板状态 activePanelId 本身不持久化（createLayoutStore 无 persist）。
+ *
+ * 做法：mobile.js 是 body 末尾的普通脚本，**早于所有 module bundle 执行**——
+ *   正好赶在前端 store rehydrate（首次 getItem）之前预置修正：
+ *   ① dsh.sessions.current 剥掉 subagentAddress（sessionId 保留：会话选择是用户数据）；
+ *   ② 遍历 dsh.conversation.* 键，view 非空且非 "chat" 的改写为 "chat"；
+ *      draft / viewRequest 等其余字段原样保留（草稿跨重启是好评功能，不能清）。
+ *   运行中切走别的页面不受影响：本段只在每次页面加载的最早时机跑一次；
+ *   之后前端每次状态变更都会覆盖写回——即运行期行为与原版完全一致。
+ */
+(function () {
+  if (typeof localStorage === 'undefined') return;
+  var touched = false;
+  try {
+    // ① 冷启动不恢复 subagent 主面板，回会话页（sessionId 不动）
+    var cur = localStorage.getItem('dsh.sessions.current');
+    if (cur) {
+      var sel = null;
+      try { sel = JSON.parse(cur); } catch (e) { sel = null; }
+      if (sel && typeof sel === 'object' && sel.subagentAddress !== undefined) {
+        delete sel.subagentAddress;
+        localStorage.setItem('dsh.sessions.current', JSON.stringify(sel));
+        touched = true;
+      }
+    }
+    // ② 会话内视图归位 chat（非 chat 的存档值会被 resolveActiveView 恢复）
+    for (var i = localStorage.length - 1; i >= 0; i--) {
+      var k = localStorage.key(i);
+      if (!k || k.indexOf('dsh.conversation.') !== 0) continue;
+      var raw = null;
+      try { raw = localStorage.getItem(k); } catch (e) { raw = null; }
+      if (!raw) continue;
+      var obj = null;
+      try { obj = JSON.parse(raw); } catch (e) { obj = null; }
+      if (!obj || typeof obj !== 'object') continue;
+      if (typeof obj.view === 'string' && obj.view !== 'chat') {
+        obj.view = 'chat';
+        try { localStorage.setItem(k, JSON.stringify(obj)); touched = true; } catch (e) {}
+      }
+    }
+  } catch (e) { /* 存储读写失败时保持原状，落点回退前端默认行为 */ }
+})();
