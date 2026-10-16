@@ -1255,6 +1255,26 @@ public class AccessibilityService extends android.accessibilityservice.Accessibi
         return fallback;
     }
 
+    /** 截图兜底清理：目录里只保留最新的 maxKeep 张 screen-*.png（AI 用完即删照旧；防无限堆积）。
+     *  ⚠ 不用 lambda：本工程 javac 以 android.jar 为 bootclasspath，LambdaMetafactory 不可用。 */
+    private void pruneScreenshots(File dir, final int maxKeep) {
+        try {
+            File[] files = dir.listFiles(new java.io.FilenameFilter() {
+                @Override public boolean accept(File d, String n) {
+                    return n.startsWith("screen-") && n.endsWith(".png");
+                }
+            });
+            if (files == null || files.length <= maxKeep) return;
+            java.util.Arrays.sort(files, new java.util.Comparator<File>() {
+                @Override public int compare(File a, File b) {
+                    long la = a.lastModified(), lb = b.lastModified();
+                    return lb == la ? 0 : (lb > la ? 1 : -1); // 新→旧
+                }
+            });
+            for (int i = maxKeep; i < files.length; i++) files[i].delete();
+        } catch (Throwable ignored) {}
+    }
+
     /** /screenshot：Android 11+ 无障碍截图，存 PNG 到外部共享目录 <sdcard>/<pkgRoot>/screenshots/，返回路径。
      *  grid=4/8 叠加网格线（帮模型按行列定位）；返回屏幕/图片尺寸与换算系数。 */
     private String handleScreenshot(String path) {
@@ -1314,6 +1334,7 @@ public class AccessibilityService extends android.accessibilityservice.Accessibi
                             soft.compress(Bitmap.CompressFormat.PNG, 100, fos);
                             fos.flush();
                             fos.close();
+                            pruneScreenshots(dir, 20); // 兜底清理：目录只留最新 20 张
                             int[] size = screenSize();
                             JSONObject o = new JSONObject();
                             o.put("ok", true);

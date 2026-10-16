@@ -31,6 +31,16 @@ function privilegedAvailable() {
   return process.env.ROOT_AVAILABLE === "1" || process.env.SHIZUKU_AVAILABLE === "1";
 }
 
+/** 截图默认目录：按包名派生（正式版 DeepSeekHarness / Lite …Lite / 兼容版 …Compat），
+ *  与无障碍截图（AccessibilityService.screenshotDir）落在同一处——多套同源包互不串目录。 */
+function screenshotRootDir() {
+  const pkg = process.env.SHIZUKU_APP_ID || "";
+  const root = pkg.includes("beta") ? "DeepSeekHarnessLite"
+    : pkg.includes("compat") ? "DeepSeekHarnessCompat"
+    : "DeepSeekHarness";
+  return "/sdcard/" + root + "/screenshots";
+}
+
 /** 危险操作白名单：SHIZUKU_APPROVE=ask 时这些 action 需要审批。 */
 const DANGEROUS_ACTIONS = new Set([
   "install", "uninstall", "clear", "grant", "revoke", "force_stop",
@@ -554,7 +564,7 @@ function apply(ctx) {
   // 4) 截图
   ctx.tools.register(defineTool({
     name: "android_screenshot",
-    description: "截取当前屏幕，保存为 PNG，返回文件路径。默认存到 /sdcard/DeepSeekHarness/screenshots/。",
+    description: "截取当前屏幕，保存为 PNG，返回文件路径。默认存到应用专属截图目录（与无障碍截图同一处；自动只保留最近 20 张）。",
     parameters: {
       save_path: { type: "string", description: "可选，完整保存路径；留空自动生成" }
     },
@@ -570,8 +580,13 @@ function apply(ctx) {
       const ts = new Date().toISOString().replace(/[:.]/g, "-");
       const path = args.save_path
         ? safe(args.save_path)
-        : "/sdcard/DeepSeekHarness/screenshots/shot-" + ts + ".png";
-      const r = await privCmd("mkdir -p " + path.substring(0, path.lastIndexOf("/")) + "; screencap -p " + path + " && echo __SHOT_OK__", 30000);
+        : screenshotRootDir() + "/shot-" + ts + ".png";
+      const dir = path.substring(0, path.lastIndexOf("/"));
+      // 顺手清旧图：同一目录只保留最近 20 张 shot-*（AI 用完即删照旧，这里兜底防堆积）。
+      const r = await privCmd(
+        "mkdir -p " + dir + "; screencap -p " + path + " && echo __SHOT_OK__" +
+        "; ls -t " + dir + "/shot-*.png 2>/dev/null | tail -n +21 | while read f; do rm -f \"$f\"; done",
+        30000);
       return { ...r, path: r.ok ? path : "" };
     }
   }));
