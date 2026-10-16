@@ -133,7 +133,11 @@ public class MainActivity extends Activity {
         // v1.15.9：dsh-app-boot 打了「插件 warn 落盘」补丁（$DSH_HOME/logs/plugins.log）。
         // 必须加白名单，否则同内核版本下 fast 同步不会覆盖它，补丁形同没打。
         "dshroot/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js",
-        "dshroot/lib/node_modules/@deepseek-ai/dsh/package.json"
+        "dshroot/lib/node_modules/@deepseek-ai/dsh/package.json",
+        // 模型说明书（AGENTS.md / system.md）：payload 覆盖升级时内部解压默认跳过已存在文件，
+        // 不加白名单升级用户永远拿不到新版说明书。
+        "dshhome/AGENTS.md",
+        "dshhome/system.md"
     };
     // 外部 dshroot 解压完成标记（App 在 dshroot 补齐后写入；清空/重置时随目录删除）。
     // 用于识别「解压中途被打断」：即使 REVISION 一致也强制补齐缺失文件。

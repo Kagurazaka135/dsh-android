@@ -469,6 +469,25 @@ cp "$H/.dsh/profiles/web/package.json" "$P/staging/dshhome/profiles/web/"
 cp "$H/.dsh/profiles/web/pnpm-workspace.yaml" "$P/staging/dshhome/profiles/web/"
 cp "$H/.dsh/settings.yaml" "$P/staging/dshhome/" 2>/dev/null   || cp "$H/.dsh/settings.yaml.imported" "$P/staging/dshhome/settings.yaml"   || { echo "!! 找不到 .dsh/settings.yaml（也没有 settings.yaml.imported），中止"; exit 1; }
 
+# AGENTS.md（用户全局指令）：dsh 的 agent-instructions 从 $DSH_HOME/AGENTS.md 读（USER_GLOBAL_FILE）。
+# system.md（行为准则 · 主观层）单独进包（$DSH_HOME/system.md），并在构建期拼接进 AGENTS.md ——
+# 0.2.0-rc.2 内核没有独立的 system.md 加载器，且默认 standard preset 的 dsh-persona 会 shadow
+# 部署级 personaPrefix（系统提示词通道进不去）；拼接是它必然被模型读到的通道。
+AGENTS_SRC="$P/../../dsh-home/AGENTS.md"
+SYSTEM_SRC="$P/../../dsh-home/system.md"
+if [ -f "$AGENTS_SRC" ]; then
+  if [ -f "$SYSTEM_SRC" ]; then
+    cp "$SYSTEM_SRC" "$P/staging/dshhome/system.md"
+    { cat "$AGENTS_SRC"; echo; echo "---"; echo; cat "$SYSTEM_SRC"; } > "$P/staging/dshhome/AGENTS.md"
+    echo "  已注入 AGENTS.md（含拼接的 system.md，$(wc -c < "$P/staging/dshhome/AGENTS.md") 字节）+ system.md（单独进包）"
+  else
+    cp "$AGENTS_SRC" "$P/staging/dshhome/AGENTS.md"
+    echo "  !! 未找到 dsh-home/system.md，仅注入 AGENTS.md，继续"
+  fi
+else
+  echo "  !! 未找到 dsh-home/AGENTS.md（模型将不知道自己的能力清单），继续"
+fi
+
 # 安全检查：payload 里绝不能出现 API Key 或凭证文件
 if grep -rqE "sk-[A-Za-z0-9]{20,}" "$P/staging" 2>/dev/null; then
   echo "!! 检测到 API Key 混入 payload，中止"; exit 1
