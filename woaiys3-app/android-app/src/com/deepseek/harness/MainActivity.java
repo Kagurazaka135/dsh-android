@@ -235,10 +235,8 @@ public class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     // 运行时确定的 dshroot 目录（外部公共目录优先，失败回退内部 files/payload/dshroot）
     private File dshrootDir = null;
-    private boolean watchdogStarted = false;
-    private long lastRespawnAt = 0L;
     private volatile boolean engineStartAborted = false;   // v1.13：「停止」打断在飞的启动等待（否则状态栏一直计时到 90s 超时）
-    private volatile boolean engineStoppedByUser = false;  // v1.13：用户主动停止 → 看门狗不得再自动拉起引擎
+    private volatile boolean engineAutoEnter = false;      // 本轮冷启动：引擎就绪后自动进入主界面
     // v1.13：引擎存活探测结果缓存。控制台的每秒刷新在主线程跑，一旦直接做 HTTP 探测就会抛
     // NetworkOnMainThreadException（被 catch 吞掉）→ 引擎明明在跑也永远判“未启动”
     // → 用户再点一次「启动引擎」就又拉起一个 node → EADDRINUSE（用户实测的“启动一会又变回去”）。
@@ -279,6 +277,7 @@ public class MainActivity extends Activity {
         setTheme(themePrefersDark() ? R.style.AppTheme : R.style.AppTheme_Light);
         super.onCreate(savedInstanceState);
         enginePort = defaultEnginePort(this); // 三版本各自独立端口（见 defaultEnginePort）
+        EngineCore.setEnginePort(this, enginePort);
         // v1.17.4：控制台主题包配置（/sdcard/<包名目录>/console/console.json）。
         // 放在 applyStatusBar() 之前 —— statusBar 颜色要参与状态栏/导航栏取色；坏配置在 load() 里自动回退。
         conThemeReloadIfChanged(true);
@@ -451,10 +450,11 @@ public class MainActivity extends Activity {
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         if (prefs.getBoolean("setup_done", false)) {
             showEngineScreen();
-            // v1.12：冷启动先停在控制台；切屏回来/任务恢复（savedInstanceState != null）直接进主界面。
-            if (savedInstanceState == null) {
-                showConsole();
-            } else {
+            // 控制台仍是启动过程的可见过渡，但不再要求用户从这里点第二次。
+            showConsole();
+            if (!EngineCore.isUserStopped(this)) {
+                // 先置位再启动：就绪路径可能立即命中，不能丢掉自动进入意图。
+                engineAutoEnter = true;
                 startEngine();
             }
         } else {
@@ -650,7 +650,6 @@ public class MainActivity extends Activity {
         // （这正是"手机当服务器"的设计意图，不需要停）。旧文案"服务器将停止运行"与实际行为不符。
         conDialog("退出 DeepSeek Harness", "确定要退出吗？界面会关闭，服务器将在后台继续运行。", "退出", new Runnable() {
             @Override public void run() {
-                stopKeepAliveService(); // 用户主动退出：停止保活服务
                 // v1.20.0 注意：语音服务**不**随界面退出停 —— B 路线要「唤醒常驻」，
                 // 界面关了还能喊一声（语音桥是独立前台服务）。只有停引擎（conStopEngine）才收它。
                 finish();
@@ -2144,7 +2143,7 @@ public class MainActivity extends Activity {
     // ============ 引擎启动（原逻辑）============
     private void startEngine() {
         engineStartAborted = false;    // v1.13：重新启动 → 清掉「停止」留下的中止/抑制标记
-        engineStoppedByUser = false;
+        EngineCore.setUserStopped(this, false);
         startKeepAliveService();   // 前台保活：挂后台不被杀（引擎持续运行）
         startVoiceService();       // 语音服务：随引擎起（麦克风只在工具调用时才打开）
         // 引擎端口持久化（供 OverlayService/其他组件读取）；已授权悬浮窗时自动拉起小鲸鱼
@@ -2260,6 +2259,7 @@ public class MainActivity extends Activity {
                     setExecutables(payload);
                     secureDexFiles(payload); // v1.13.5：兜底把旧树里已有的 dex 也收成 0444（覆盖升级不会被重写）
                     ensurePatchConfig(payload); // ③ 补丁启动自检：cordis.patch.yml 缺失/被改则自动补齐
+                    EngineCore.rememberDshroot(MainActivity.this, dshrootDir);
                     filesPreparedThisBoot = true;
                     conMarkPayloadDone();   // 记录“内部这棵树是本次安装解压的”（供控制台/校验判定）
                     } // end if (!filesPreparedThisBoot)
@@ -2427,7 +2427,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 停止前台服务（用户主动退出时调用）。 */
+    /** 停止前台服务（仅在用户明确停止引擎时调用）。 */
     private void stopKeepAliveService() {
         try {
             stopService(new Intent(this, EngineService.class));
@@ -3710,65 +3710,6 @@ public class MainActivity extends Activity {
         try { f.setWritable(false, false); } catch (Throwable ignored) {}   // chmod 失败（如 FUSE）时的兜底
     }
 
-    /**
-     * v1.15.5：把 Android 系统 CA（/system/etc/security/cacerts/*.0，PEM）拼成一个 bundle 文件。
-     *
-     * 为什么必须自己做：内置 curl/git 依赖的 libcrypto 把 OPENSSLDIR 编译死指向 Termux 的
-     * /data/data/com.termux/files/usr/etc/tls/cert.pem，而本机通常没装 Termux → 一个 CA 都拿不到，
-     * 所有 HTTPS 请求失败（实测 curl 报 (77) error adding trust anchors from file，git 报同一句）。
-     *
-     * 为什么不直接指向系统目录：该目录本身是 c_rehash 哈希目录（OpenSSL 认这种格式），但对 CAfile
-     * OpenSSL 是「文件不存在即硬报错」，不会回退到目录 —— 实测只设 SSL_CERT_DIR 仍然失败。合成为一个
-     * 真实存在的文件最稳，顺带把用户自己装的证书也带上。
-     *
-     * 缓存：证书数 + 最新 mtime 未变时复用，避免每次启动重写 ~750KB。
-     */
-    /**
-     * v1.15.7：生成 git 的配置文件（ssh→https 改写 + git 用的 CA + 沿用用户自己的全局配置）。
-     *
-     * 为什么用文件而不是环境变量：内核给子进程的是「洗过的」父环境
-     * （dsh-subprocess 的 scrubbedParentEnv，SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i），
-     * 而 git 用环境变量传配置的键名是 GIT_CONFIG_KEY_<n> —— 含 "KEY"，会被洗掉，
-     * 于是 GIT_CONFIG_COUNT 还在、KEY 没了 → "error: missing config key GIT_CONFIG_KEY_0"。
-     * 配置文件完全不受这套清洗影响。
-     *
-     * GIT_CONFIG_GLOBAL 指向本文件（它会替换默认的 ~/.gitconfig，所以把用户那份 include 进来）。
-     */
-    private File ensureGitConfig(File payload, File caBundle) {
-        File out = new File(new File(payload, "runtime/etc"), "gitconfig");
-        try {
-            File parent = out.getParentFile();
-            if (parent != null) parent.mkdirs();
-            StringBuilder sb = new StringBuilder();
-            sb.append("# DSH 手机版自动生成。每次启动引擎都会重写，改这里会被覆盖。\n");
-            File userCfg = new File(getFilesDir(), ".gitconfig");
-            if (userCfg.isFile() && !userCfg.getAbsolutePath().equals(out.getAbsolutePath())) {
-                sb.append("[include]\n\tpath = ").append(userCfg.getAbsolutePath()).append("\n");
-            }
-            sb.append("[url \"https://github.com/\"]\n");
-            sb.append("\tinsteadOf = git+ssh://git@github.com/\n");
-            sb.append("\tinsteadOf = ssh://git@github.com/\n");
-            sb.append("\tinsteadOf = git@github.com:\n");
-            sb.append("[url \"https://gitee.com/\"]\n");
-            sb.append("\tinsteadOf = git+ssh://git@gitee.com/\n");
-            sb.append("\tinsteadOf = ssh://git@gitee.com/\n");
-            sb.append("\tinsteadOf = git@gitee.com:\n");
-            if (caBundle != null) {
-                sb.append("[http]\n\tsslCAInfo = ").append(caBundle.getAbsolutePath()).append("\n");
-            }
-            java.io.FileOutputStream os = new java.io.FileOutputStream(out);
-            try {
-                os.write(sb.toString().getBytes("UTF-8"));
-            } finally {
-                os.close();
-            }
-            Log.i(TAG, "git config -> " + out.getAbsolutePath());
-            return out;
-        } catch (Throwable t) {
-            Log.w(TAG, "git config generation failed: " + t);
-            return null;
-        }
-    }
 
     // v1.15.8：profile 的插件注册表。dsh-plugin-manager 装插件时把依赖与 bundle 名写在这里
     // （saveManifest → <profile>/package.json 的 dependencies + dsh.profile.bundles），
@@ -3862,231 +3803,26 @@ public class MainActivity extends Activity {
         }
     }
 
-    private File ensureSystemCaBundle(File payload) {
-        File out = new File(new File(payload, "runtime/etc"), "cacert.pem");
-        try {
-            File dir = new File("/system/etc/security/cacerts");
-            File[] certs = dir.listFiles();
-            if (certs == null || certs.length == 0) return out.isFile() ? out : null;
-            int count = 0;
-            long newest = 0L;
-            for (File c : certs) {
-                if (c.isFile() && c.length() > 0) {
-                    count++;
-                    if (c.lastModified() > newest) newest = c.lastModified();
-                }
-            }
-            if (count == 0) return out.isFile() ? out : null;
-            String stamp = count + ":" + newest;
-            android.content.SharedPreferences sp = getSharedPreferences("dsh_prefs", MODE_PRIVATE);
-            if (out.isFile() && out.length() > 1024L && stamp.equals(sp.getString("ca_bundle_stamp", ""))) {
-                return out;
-            }
-            File parent = out.getParentFile();
-            if (parent != null) parent.mkdirs();
-            java.io.FileOutputStream os = new java.io.FileOutputStream(out);
-            try {
-                byte[] buf = new byte[8192];
-                for (File c : certs) {
-                    if (!c.isFile()) continue;
-                    java.io.FileInputStream in = new java.io.FileInputStream(c);
-                    try {
-                        int n;
-                        while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
-                    } finally {
-                        in.close();
-                    }
-                    os.write('\n');
-                }
-            } finally {
-                os.close();
-            }
-            out.setReadable(true, false);
-            sp.edit().putString("ca_bundle_stamp", stamp).apply();
-            Log.i(TAG, "system CA bundle -> " + out.getName() + " (" + out.length() + " bytes, " + count + " certs)");
-            return out;
-        } catch (Throwable t) {
-            Log.w(TAG, "system CA bundle failed: " + t);
-            return out.isFile() ? out : null;
-        }
-    }
 
+    /**
+     * Spawns the engine process through EngineCore (the application-scoped path shared with
+     * EngineService's watchdog). The legacy per-spawn cordis.patch.yml heal is kept here so a
+     * mid-boot corruption still gets repaired on the UI-driven restart path.
+     */
     private void spawnNode(File payload) throws IOException {
-        File node = new File(payload, "runtime/bin/node");
-        File binjs = new File(dshrootDir, REL_BINJS);
-        File lib = new File(payload, "runtime/lib");
-        File home = new File(payload, "dshhome");
-        File bin = new File(payload, "bin");
-        File tmp = new File(getCacheDir(), "tmp");
-        if (!tmp.exists()) tmp.mkdirs();
-
-        if (!node.exists()) throw new IOException("node binary missing");
-        if (!binjs.exists()) throw new IOException("dsh bin.js missing");
-        if (!node.canExecute()) node.setExecutable(true, false);
-
         // v1.13：起引擎前先自愈 cordis.patch.yml —— 旧版控制台关插件会把它写成非法 YAML，
         // 引擎每次启动都崩在解析、App 反复重拉（表现：界面一直闪、一直计时）。
         conHealPatchConfig();
-
-        // 注意：Android 兼容补丁（禁用 llm-pi-ai/sandbox/bash-sandbox 的 cordis.patch.yml）
-        // 位于 $DSH_HOME/cordis.patch.yml，由 dsh profile-boot 的 homePatches 自动加载，
-        // 无需 --patch 参数（重复传入会导致 duplicate loader entry 崩溃）。
-        ProcessBuilder pb = new ProcessBuilder(
-                node.getAbsolutePath(), "--expose-internals", binjs.getAbsolutePath(),
-                "web", "--host", "127.0.0.1", "--port", String.valueOf(enginePort));
-        java.util.Map<String, String> env = pb.environment();
-        env.put("LD_LIBRARY_PATH", lib.getAbsolutePath());
-        // Termux 共存修复（v1.7.4）：内置 node 在 Termux 环境编译，OPENSSLDIR 被编译死为
-        // /data/data/com.termux/files/usr。装了 Termux 的设备读其 openssl.cnf 触发 EACCES，
-        // node 启动即崩；没装 Termux 时靠 ENOENT 静默才碰巧正常。注入 OPENSSL_CONF 指向
-        // payload 自带的可读 openssl.cnf（build.sh 生成），有无 Termux 都稳定。
-        File osslConf = new File(payload, "runtime/etc/openssl.cnf");
-        if (osslConf.exists()) env.put("OPENSSL_CONF", osslConf.getAbsolutePath());
-        // v1.15.5：内置 git 的 Android 适配（与 pnpm 同批；插件管理「GitHub 地址」输入要靠它）。
-        //  · GIT_EXEC_PATH / GIT_TEMPLATE_DIR：Termux 构建把这些路径写死为 /data/data/com.termux/files/usr，
-        //    必须改指 payload 内 —— 否则 git 找不到远程助手（实测报 "unable to find remote helper for 'https'"）。
-        //    注意 git 还要靠 PATH 里的 `git` 去拉起该助手，而 payload/bin 本来就在 PATH 上。
-        //  · GIT_PAGER=cat：payload 没带 less，避免 git 去拉分页器。
-        //  · 证书：内置 curl/git 依赖的 libcrypto 把 OPENSSLDIR 编译死指向 Termux 的
-        //    /data/data/com.termux/files/usr/etc/tls/cert.pem；本机没装 Termux → 一个 CA 都拿不到，
-        //    HTTPS 一律失败（实测 curl 报 (77) error adding trust anchors，git 报同一句）。
-        //    把系统 CA 合成一个 bundle，再用各自认的变量指过去：curl 认 SSL_CERT_FILE / CURL_CA_BUNDLE，
-        //    git 认 GIT_SSL_CAINFO（实测三者在真机上都生效）。
-        File gitDir = new File(payload, "git");
-        env.put("GIT_EXEC_PATH", new File(gitDir, "libexec/git-core").getAbsolutePath());
-        env.put("GIT_TEMPLATE_DIR", new File(gitDir, "templates").getAbsolutePath());
-        env.put("GIT_PAGER", "cat");
-        // v1.15.7：ssh 形式的 git URL 在 Android 上永远不可用 —— payload 没带 ssh 客户端、也没有密钥，
-        // 用户填 git@github.com:user/repo.git / git+ssh://… / ssh://… 时报
-        // "error: cannot run ssh: No such file or directory"（真机实测）。
-        //
-        // 做法：把 ssh 形式用 git 的 url.<base>.insteadOf 改写成 https —— 但「不能靠环境变量传」
-        // （v1.15.6 的错误做法）：内核给 pnpm 的是「洗过的父环境」（dsh-subprocess 的
-        // scrubbedParentEnv：SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i），而 git 用环境变量
-        // 传配置的键名恰好叫 「GIT_CONFIG_KEY_<n>」 —— 含 "KEY" 被当凭据洗掉，GIT_CONFIG_COUNT 却活下来
-        // → 真机报 "error: missing config key GIT_CONFIG_KEY_0"。
-        // 改成写配置文件（见 ensureGitConfig），用 GIT_CONFIG_GLOBAL 指过去：该名字不含
-        // KEY/PASSWORD/SECRET/TOKEN，能活过清洗（已按该正则逐项自查）。
-        env.put("GIT_TERMINAL_PROMPT", "0");   // 需要凭据时立刻失败，别挂住等 tty 输入（AI 的 bash 没有 tty）
-        File caBundle = ensureSystemCaBundle(payload);
-        if (caBundle != null) {
-            env.put("SSL_CERT_FILE", caBundle.getAbsolutePath());
-            env.put("CURL_CA_BUNDLE", caBundle.getAbsolutePath());
-            env.put("GIT_SSL_CAINFO", caBundle.getAbsolutePath());
-        }
-        File gitCfg = ensureGitConfig(payload, caBundle);
-        if (gitCfg != null) env.put("GIT_CONFIG_GLOBAL", gitCfg.getAbsolutePath());
-        // v1.16.1：npm 全局安装落点（$HOME/.npm-global/bin）也要在 PATH 上。
-        // npm 的默认前缀是 <payload>/runtime（payload 内，升级会被覆盖），所以内置 npm 的 wrapper
-        // 把它改到 $HOME/.npm-global（HOME = filesDir，可写且跨版本升级保留，见下一行）；
-        // 但装出来的命令落在 <HOME>/.npm-global/bin，不显式加进 PATH 则 AI 找不到。
-        env.put("PATH", bin.getAbsolutePath() + ":" +
-                new File(payload, "runtime/bin").getAbsolutePath() + ":" +
-                new File(getFilesDir(), ".npm-global/bin").getAbsolutePath() + ":/system/bin:/system/xbin");
-        env.put("HOME", getFilesDir().getAbsolutePath());
-        env.put("DSH_HOME", home.getAbsolutePath());
-        env.put("TMPDIR", tmp.getAbsolutePath());
-        env.put("TERM", "xterm");
-        env.put("SHIZUKU_DEX", rishDex != null ? rishDex.getAbsolutePath() : "");
-        // v1.9 虚拟屏 server dex：app_process 特权加载 VirtualScreenServer
-        env.put("VS_DEX", vscreenDex != null ? vscreenDex.getAbsolutePath() : "");
-        // v1.13 修正：这里原来「硬编码」 "com.deepseek.harness.beta"，而三版共用同一份源码 —— 正式版跑起来
-        // 也在自称 beta，而 rish 要拿这个 appId 去 Shizuku 要授权，Shizuku 比对实际调用者的包名/uid
-        // （正式版 uid ≠ beta uid）→ 门卫不认（用户回报：“SHIZUKU_APP_ID=…beta，但真正在跑的是 com.deepseek.harness”）。
-        // 按实际包名派生；并写回 dsh_prefs，供无障碍服务等其它组件复用（同样不能信旧值）。
-        final String selfAppId = getPackageName();
-        env.put("SHIZUKU_APP_ID", selfAppId);
-        try {
-            getSharedPreferences("dsh_prefs", MODE_PRIVATE).edit().putString("shizuku_app_id", selfAppId).apply();
-        } catch (Throwable ignored) {}
-        // 特权通道可用性：root(su) 或 Shizuku。两者都未授予时，DSH 插件不注册特权工具，
-        // AI 不会反复尝试系统操作；文件读写仍可用 DSH 自带的 fs/bash 工具（只需存储权限）。
-        env.put("SHIZUKU_AVAILABLE", shizukuAvailable() ? "1" : "0");
-        env.put("ROOT_AVAILABLE", rootAvailable() ? "1" : "0");
-        // v1.13.1：本地特权路由 /shell 的鉴权令牌——只经 env 交给本应用自己的引擎，本机其它应用猜不到，
-        // 避免任意应用通过 127.0.0.1:<notifyPort>/shell 拿到 shell 权限。
-        env.put("APP_LOCAL_TOKEN", localToken());
-        env.put("APP_NOTIFY_PORT", String.valueOf(notifyPort()));
-        // v1.7 无障碍服务端口（通知端口 + 100，三版本共存不冲突）：插件 dsh-tool-accessibility 经此端口
-        // 调用 App 的无障碍服务（读屏/点击/输入/截图）。端口同时写入 dsh_prefs，供无障碍服务读取。
-        final int a11yPort = notifyPort() + 100;
-        env.put("APP_A11Y_PORT", String.valueOf(a11yPort));
-        getSharedPreferences("dsh_prefs", MODE_PRIVATE).edit().putInt("a11y_port", a11yPort).apply();
-        // v1.20.0 语音端口（引擎端口 + 200，与 notify=+1、a11y=+101 同一派生体系）：
-        // 插件 dsh-tool-voice 经此调用 App 的 VoiceService（TTS 播报/听写/录音/唤醒/事件流）。
-        // 端口写 dsh_prefs，VoiceService 侧读同一键、口径一致。
-        final int voicePort = enginePort + 200;
-        env.put("APP_VOICE_PORT", String.valueOf(voicePort));
-        getSharedPreferences("dsh_prefs", MODE_PRIVATE).edit().putInt("voice_port", voicePort).apply();
-        // AI 工作区（可选）：用户选择的外部共享存储目录，作为 bash/文件工具的工作根目录
-        String ws = workspacePath();
-        if (ws != null && !ws.isEmpty()) env.put("DSH_WORKSPACE", ws);
-        pb.redirectErrorStream(true);
-
-        final Process proc = pb.start();
-        nodeProcess = proc;
-        final File logFile = new File(getFilesDir(), "dsh-web.log");
-        // v1.7.1：同时镜像一份引擎日志到外部目录（无需 root/adb 可读），
-        // 覆盖「node 反复崩溃但 waitForServer 未抛异常」时不产生 startup-diag.txt 的场景。
-        final File extLogFile = new File(android.os.Environment.getExternalStorageDirectory(),
-                (getPackageName().contains("beta") ? "DeepSeekHarnessLite"
-                        : getPackageName().contains("compat") ? "DeepSeekHarnessCompat" : "DeepSeekHarness")
-                        + "/dsh-web.log");
-        new Thread(new Runnable() {
-            @Override public void run() {
-                FileOutputStream fos = null;
-                FileOutputStream extFos = null;
-                try {
-                    fos = new FileOutputStream(logFile, true);
-                    try {
-                        File extParent = extLogFile.getParentFile();
-                        if (extParent != null && !extParent.exists()) extParent.mkdirs();
-                        extFos = new FileOutputStream(extLogFile, true);
-                    } catch (Throwable ignored) {
-                    }
-                    InputStream is = proc.getInputStream();
-                    byte[] b = new byte[4096];
-                    int n;
-                    String carry = "";
-                    while ((n = is.read(b)) > 0) {
-                        fos.write(b, 0, n);
-                        fos.flush();
-                        if (extFos != null) {
-                            try { extFos.write(b, 0, n); extFos.flush(); } catch (Throwable ignored) {}
-                        }
-                        // v1.12：一次 read 可能在行中间断开，token URL 会被截成两半 → 拼接后再切行
-                        String s = carry + new String(b, 0, n, "UTF-8");
-                        int cut = s.lastIndexOf('\n');
-                        carry = cut >= 0 ? s.substring(cut + 1) : s;
-                        String parse = cut >= 0 ? s.substring(0, cut) : "";
-                        for (String line : parse.split("\n")) {
-                            String t = line.trim();
-                            if (!t.isEmpty()) Log.i(TAG, "node: " + t);
-                            // 0.1.5 认证：引擎打印 "dsh web: http://127.0.0.1:3080/?token=..."，
-                            // 解析出来供健康探测与 WebView 首次加载使用。
-                            int at = t.indexOf("http://127.0.0.1");
-                            int tk = t.indexOf("?token=");
-                            if (at >= 0 && tk > at) {
-                                String u = t.substring(at);
-                                int sp = u.indexOf(' ');
-                                if (sp > 0) u = u.substring(0, sp);
-                                engineTokenUrl = u;
-                                Log.i(TAG, "engine token url captured");
-                            }
-                        }
-                    }
-                } catch (IOException e) {
-                    Log.w(TAG, "log reader error", e);
-                } finally {
-                    try { if (fos != null) fos.close(); } catch (IOException ignored) {}
-                    try { if (extFos != null) extFos.close(); } catch (IOException ignored) {}
-                }
+        nodeProcess = EngineCore.spawnNode(this, payload, new EngineCore.NodeListener() {
+            @Override public void onTokenUrl(String tokenUrl) {
+                engineTokenUrl = tokenUrl;
+                Log.i(TAG, "engine token url captured");
             }
-        }, "node-log").start();
+        });
     }
 
     private boolean healthOk() {
-        return isDshEngine(enginePort);
+        return EngineCore.healthOk(this);
     }
 
     /** 读 HTTP 正文（容忍错误流；仅供探测用，上限 max 字节）。 */
@@ -4112,7 +3848,7 @@ public class MainActivity extends Activity {
         long deadline = start + 90000;
         while (System.currentTimeMillis() < deadline) {
             if (engineStartAborted) return;   // v1.13：用户点了「停止」→ 立即收手，别再刷“已等待 N 秒”
-            if (healthOk()) { loadHome(); return; }
+            if (healthOk()) { onEngineReady(); return; }
             long waited = (System.currentTimeMillis() - start) / 1000;
             setStatus("正在启动 DeepSeek Harness…（已等待 " + waited + " 秒）");
             try { Thread.sleep(1000); } catch (InterruptedException e) { return; }
@@ -4163,7 +3899,7 @@ public class MainActivity extends Activity {
         final long deadline = System.currentTimeMillis() + 600000L; // 最多再守望 10 分钟
         new Thread(new Runnable() { @Override public void run() {
             while (System.currentTimeMillis() < deadline) {
-                if (engineStoppedByUser || engineStartAborted) return; // 用户主动停止 → 不再打扰
+                if (EngineCore.isUserStopped(MainActivity.this) || engineStartAborted) return; // 用户主动停止 → 不再打扰
                 if (engineStartTs == 0L) return;                       // 期间被重启流程接管 → 收手
                 try {
                     if (healthOk()) {
@@ -4181,42 +3917,23 @@ public class MainActivity extends Activity {
         }}, "engine-late-bloom").start();
     }
 
-    /** node 看门狗：node 进程死亡且服务不可用时自动重启引擎并刷新页面 */
-    private void startWatchdog() {
-        if (watchdogStarted) return;
-        watchdogStarted = true;
-        new Thread(new Runnable() {
-            @Override public void run() {
-                while (!Thread.currentThread().isInterrupted()) {
-                    try { Thread.sleep(5000); } catch (InterruptedException e) { return; }
-                    try {
-                        if (nodeProcess == null) continue;
-                        if (engineStoppedByUser) continue;   // v1.13：用户点了「停止」→ 不自动拉起
-                        boolean serverUp = healthOk();
-                        boolean nodeAlive = nodeProcess.isAlive();
-                        if (!serverUp && !nodeAlive) {
-                            long now = System.currentTimeMillis();
-                            if (now - lastRespawnAt < 20000) continue; // 避免风车重启
-                            lastRespawnAt = now;
-                            Log.w(TAG, "node died, respawning engine");
-                            spawnNode(new File(getFilesDir(), "payload"));
-                            final WebView wv = webView;
-                            ui.post(new Runnable() {
-                                @Override public void run() { wv.loadUrl(webHomeUrl()); }
-                            });
-                        }
-                    } catch (Throwable t) {
-                        Log.w(TAG, "watchdog error", t);
-                    }
-                }
+    /** Completes either the normal UI path or a cold-start auto-entry on the main thread. */
+    private void onEngineReady() {
+        if (!consoleVisible) {
+            loadHome();
+            return;
+        }
+        if (!engineAutoEnter) return;
+        ui.post(new Runnable() { @Override public void run() {
+            if (engineAutoEnter && consoleVisible && !EngineCore.isUserStopped(MainActivity.this)) {
+                enterMainUi();
             }
-        }, "node-watchdog").start();
+        }});
     }
 
     private void loadHome() {
-        // v1.12：控制台还开着时不抢界面（引擎就绪后由用户点「打开主界面」进来）
+        // 控制台可作为启动过渡；自动进入由 onEngineReady() 统一处理。
         if (consoleVisible) return;
-        startWatchdog();
         ui.post(new Runnable() {
             @Override public void run() {
                 statusView.setVisibility(View.GONE);
@@ -4392,16 +4109,7 @@ public class MainActivity extends Activity {
     /** 端口是否已被监听（TCP 连接得通即算；后台线程调用）。
      *  比 healthOk() 更早为真：node 还在启动时端口已经 listen，用它避免重复拉起引擎。 */
     private boolean portListening(int port) {
-        java.net.Socket s = null;
-        try {
-            s = new java.net.Socket();
-            s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 400);
-            return true;
-        } catch (Throwable t) {
-            return false;
-        } finally {
-            try { if (s != null) s.close(); } catch (Throwable ignored) {}
-        }
+        return EngineCore.portListening(port);
     }
 
     /** 真探一次引擎端口（必须在后台线程调用：主线程做网络 IO 会被系统直接抛异常）。 */
@@ -7764,7 +7472,7 @@ public class MainActivity extends Activity {
         if (starting) return;
         if (running) {
             engineStartAborted = false;
-            engineStoppedByUser = false;
+            EngineCore.setUserStopped(this, false);
             // v1.20.0：引擎已在跑（App 重开进来）→ 语音服务也补起来，别让它缺席
             startVoiceService();
             enterMainUi();
@@ -7788,7 +7496,7 @@ public class MainActivity extends Activity {
     private void conRestartEngine() {
         if (starting) return;
         conToast("正在重启引擎…");
-        engineStoppedByUser = false;
+        EngineCore.setUserStopped(this, false);
         engineStartAborted = false;
         new Thread(new Runnable() { @Override public void run() {
             killEngineNow();
@@ -7803,9 +7511,11 @@ public class MainActivity extends Activity {
 
     private void conStopEngine() {
         // v1.13：旧实现只 destroy 进程，两个后果 —— ① 在飞的 waitForServer 仍每秒刷“已等待 N 秒”（界面一直计时）；
-        // ② 看门狗 5 秒后看到 nodeProcess 非空却已死 → 又把引擎拉起来（用户看到的“停不掉”）。
+        // ② 守护服务若不知道这是用户停止，之后会把它自动拉起（用户看到的“停不掉”）。
         // 同样不能只 destroy 句柄 —— 句柄丢了就什么都停不掉，改用 killEngineNow（按 PID）。
-        engineStoppedByUser = true;
+        engineAutoEnter = false;
+        EngineCore.setUserStopped(this, true);
+        stopKeepAliveService();
         engineStartAborted = true;
         conToast("正在停止引擎…");
         // v1.13.12：停引擎 = 虚拟屏一起销毁（用户确认的行为）。虚拟屏由 AI 经引擎驱动，
@@ -7894,9 +7604,11 @@ public class MainActivity extends Activity {
             try { Thread.sleep(600); } catch (InterruptedException ignored) {}
         }
         nodeProcess = null;
+        EngineCore.setNodeProcess(null);
     }
 
     private void enterMainUi() {
+        engineAutoEnter = false; // Consume the cold-start intent before changing the console state.
         consoleVisible = false;
         if (consoleLayer != null) consoleLayer.setVisibility(View.GONE);
         if (consoleLayerBox != null) consoleLayerBox.setVisibility(View.GONE);   // v1.17.4：背景图一起收
@@ -7944,7 +7656,7 @@ public class MainActivity extends Activity {
             engineProbeAt = System.currentTimeMillis();
             if (engineStartTs == 0L) engineStartTs = System.currentTimeMillis();
             ui.post(new Runnable() { @Override public void run() { refreshConsole(); } });
-            if (!consoleVisible) loadHome();
+            onEngineReady();
             return;
         }
         showIndeterminate("正在启动 DeepSeek Harness…");
@@ -10367,7 +10079,7 @@ public class MainActivity extends Activity {
             ui.post(new Runnable() { @Override public void run() {
                 conToast(err == null ? "已进入安全模式，正在启动引擎…" : err);
                 refreshConsole();
-                if (err == null) { engineStoppedByUser = false; engineStartAborted = false; conEngineClick(); }
+                if (err == null) { EngineCore.setUserStopped(MainActivity.this, false); engineStartAborted = false; conEngineClick(); }
             }});
         }}, "safe-mode-on").start();
     }
@@ -10402,7 +10114,7 @@ public class MainActivity extends Activity {
             ui.post(new Runnable() { @Override public void run() {
                 conToast(err == null ? "已退出安全模式，正在启动引擎…" : err);
                 refreshConsole();
-                if (err == null) { engineStoppedByUser = false; engineStartAborted = false; conEngineClick(); }
+                if (err == null) { EngineCore.setUserStopped(MainActivity.this, false); engineStartAborted = false; conEngineClick(); }
             }});
         }}, "safe-mode-off").start();
     }
@@ -10689,7 +10401,7 @@ public class MainActivity extends Activity {
                 extra += (wsN > 0 ? "；含 " + wsN + " 个工作区文件" : "；没有工作区文件") + "）";
                 conToast("已导入 " + n + " 个文件" + extra + "，正在重启引擎…");
                 refreshConsole();
-                engineStoppedByUser = false; engineStartAborted = false;
+                EngineCore.setUserStopped(MainActivity.this, false); engineStartAborted = false;
                 conEngineClick();
             }});
         }}, "backup-import").start();
