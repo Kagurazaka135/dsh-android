@@ -35,11 +35,17 @@ woaiys3-app/.git/
 .DS_Store
 
 # 内部协调文档（不进公开库）
-Codex-任务书.md
+Codex-*.md
 ZCode-*.md
+Copilot-*.md
+opencode-*.md
 docs/任务书.md
 .cache/
 
 # memory 插件的内部施工文档（不公开）
 memory/设计方案.md
 memory/摸清报告.md
+
+# 工人交接单 / 给下一上下文的方案（点名 AI 工人 → 不公开）
+验收-*.md
+测试方案.md
