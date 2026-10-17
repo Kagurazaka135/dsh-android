@@ -215,7 +215,35 @@ final class VoiceModelStore {
                 : p.contains("compat") ? "DeepSeekHarnessCompat" : "DeepSeekHarness";
     }
 
+    /** 可重试的下载失败（429 / 5xx / 连接超时）—— 换源之前先退避重试同一源。 */
+    private static final class RetryableDownloadException extends IOException {
+        RetryableDownloadException(String message) { super(message); }
+    }
+
+    /**
+     * 退避重试包装：429 / 5xx / 连接超时 → 重试**同一个 URL**（2s / 5s / 15s），
+     * 三次都失败才抛出去、交给上层换下一个候选源。
+     * —— 之前是一次 429 就换源（把最好的镜像废掉、换到被墙的原源），实测踩过。
+     */
     private static void download(URL url, File target, long expectedBytes, String expectedSha) throws IOException {
+        final long[] backoff = { 2000L, 5000L, 15000L };
+        IOException last = null;
+        for (int attempt = 0; attempt <= backoff.length; attempt++) {
+            try {
+                downloadAttempt(url, target, expectedBytes, expectedSha);
+                return;
+            } catch (RetryableDownloadException e) {
+                last = e;
+                if (attempt < backoff.length) {
+                    try { Thread.sleep(backoff[attempt]); }
+                    catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw new IOException("模型下载被中断", ie); }
+                }
+            }
+        }
+        throw last;
+    }
+
+    private static void downloadAttempt(URL url, File target, long expectedBytes, String expectedSha) throws IOException {
         File partial = new File(target.getAbsolutePath() + ".part");
         HttpURLConnection connection = null;
         long offset = partial.isFile() ? partial.length() : 0L;
@@ -243,8 +271,11 @@ final class VoiceModelStore {
             int code = connection.getResponseCode();
             if (code == 416 && offset > 0) {
                 partial.delete();
-                throw new IOException("模型服务器拒绝续传，请重试");
+                throw new RetryableDownloadException("模型服务器拒绝续传（将从头重试）");
             }
+            // 429 限流 / 5xx 服务端错 —— 都是"瞬时可恢复"，退避重试同一源，别立刻换源。
+            if (code == 429 || (code >= 500 && code <= 599))
+                throw new RetryableDownloadException("模型下载 HTTP " + code + "（可重试）：" + url.getHost());
             if (code < 200 || code >= 300) throw new IOException("模型下载 HTTP " + code + "：" + url.getHost());
             boolean append = offset > 0 && code == HttpURLConnection.HTTP_PARTIAL;
             if (append) {
@@ -272,6 +303,10 @@ final class VoiceModelStore {
             }
             if (target.exists() && !target.delete()) throw new IOException("无法替换模型文件：" + target.getName());
             if (!partial.renameTo(target)) throw new IOException("无法保存模型文件：" + target.getName());
+        } catch (java.net.SocketTimeoutException e) {
+            throw new RetryableDownloadException("模型下载超时（可重试）：" + url.getHost());
+        } catch (java.net.ConnectException e) {
+            throw new RetryableDownloadException("模型下载连不上（可重试）：" + url.getHost());
         } finally {
             if (connection != null) connection.disconnect();
         }
