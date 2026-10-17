@@ -102,6 +102,7 @@ public class OverlayService extends Service {
     private ImageView vscreenImageView = null;
     private volatile boolean vscreenPreviewRunning = false;
     private volatile boolean overlayListenRunning = false;
+    private volatile boolean overlayWakeRunning = false;   // 唤醒词监听是否开着（悬浮面板的「唤醒」开关）
     private volatile String overlayVoiceMessage = "";
     private volatile long overlayVoiceMessageUntil = 0L;
     private final Handler vscreenHandler = new Handler(Looper.getMainLooper());
@@ -326,6 +327,10 @@ public class OverlayService extends Service {
         btnRow2.addView(pillButton("开麦", new Runnable() { @Override public void run() {
             startOverlayListen();
         }}));
+        // 唤醒开关（A3）：开/关"喊一声就醒"，复用 VoiceService 的 /wake 桥
+        btnRow2.addView(pillButton("唤醒", new Runnable() { @Override public void run() {
+            toggleOverlayWake();
+        }}));
         // 销毁屏：替代旧预览窗上的 ✕（用户要求销毁功能收进小鲸鱼面板）
         destroyBtn = pillButton("销毁屏", new Runnable() { @Override public void run() {
             try { VsreenBridgeService.destroyVscreenFromWhale(); } catch (Throwable ignored) {}
@@ -467,6 +472,60 @@ public class OverlayService extends Service {
                 }});
             }
         }, "overlay-voice-listen").start();
+    }
+
+    /** 悬浮面板的「唤醒」开关：开/关唤醒词监听（打 VoiceService 的 /wake 桥）。 */
+    private void toggleOverlayWake() {
+        final boolean target = !overlayWakeRunning;
+        overlayVoiceMessage = target ? "状态：开唤醒…" : "状态：关唤醒…";
+        overlayVoiceMessageUntil = System.currentTimeMillis() + 8000L;
+        if (statusText != null) statusText.setText(overlayVoiceMessage);
+        new Thread(new Runnable() {
+            @Override public void run() {
+                HttpURLConnection conn = null;
+                String message;
+                try {
+                    int port = enginePort + 200;
+                    URL url = new URL("http://127.0.0.1:" + port + "/wake");
+                    conn = (HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(12000);
+                    conn.setRequestMethod("POST");
+                    conn.setDoOutput(true);
+                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                    conn.setRequestProperty(LocalAuth.HEADER, LocalAuth.token(OverlayService.this));
+                    byte[] body = ("{\"action\":\"" + (target ? "start" : "stop") + "\"}").getBytes("UTF-8");
+                    java.io.OutputStream request = conn.getOutputStream();
+                    request.write(body);
+                    request.flush();
+                    request.close();
+                    InputStream in = conn.getInputStream();
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    byte[] buf = new byte[2048];
+                    int n;
+                    while ((n = in.read(buf)) > 0 && out.size() < 32768) out.write(buf, 0, n);
+                    in.close();
+                    JSONObject result = new JSONObject(out.toString("UTF-8"));
+                    if (!result.optBoolean("ok", false)) {
+                        message = "状态：唤醒开关失败 — " + result.optString("error", "未知错误");
+                    } else {
+                        boolean running = result.optBoolean("running", target);
+                        overlayWakeRunning = running;
+                        message = running ? "状态：唤醒已开，喊「小鲸鱼」" : "状态：唤醒已关";
+                    }
+                } catch (Throwable t) {
+                    message = "状态：唤醒开关失败 — " + String.valueOf(t.getMessage());
+                } finally {
+                    if (conn != null) conn.disconnect();
+                }
+                final String resultText = message;
+                handler.post(new Runnable() { @Override public void run() {
+                    overlayVoiceMessage = resultText;
+                    overlayVoiceMessageUntil = System.currentTimeMillis() + 15000L;
+                    if (statusText != null) statusText.setText(resultText);
+                }});
+            }
+        }, "overlay-wake-toggle").start();
     }
 
     // ==================== 可见性 / 贴边 / 动画 ====================
