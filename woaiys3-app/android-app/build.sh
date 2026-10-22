@@ -526,8 +526,9 @@ SHERPA_SHA="633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96"
 KOTLIN_STDLIB="$P/libs/kotlin-stdlib-1.7.20.jar"
 COMMONS_COMPRESS="$P/libs/commons-compress-1.28.0.jar"
 COMMONS_IO="$P/libs/commons-io-2.19.0.jar"
+COMMONS_LANG="$P/libs/commons-lang3-3.18.0.jar"
 ANDROIDX_ANNOTATION="$P/libs/annotation-jvm-1.8.2.jar"
-for DEP in "$SHERPA_AAR" "$KOTLIN_STDLIB" "$COMMONS_COMPRESS" "$COMMONS_IO" "$ANDROIDX_ANNOTATION"; do
+for DEP in "$SHERPA_AAR" "$KOTLIN_STDLIB" "$COMMONS_COMPRESS" "$COMMONS_IO" "$COMMONS_LANG" "$ANDROIDX_ANNOTATION"; do
   [ -s "$DEP" ] || { echo "!! sherpa 依赖缺失：$DEP"; exit 1; }
 done
 ACTUAL_SHERPA_SHA="$(sha256sum "$SHERPA_AAR" | awk '{print $1}')"
@@ -536,6 +537,7 @@ for SPEC in \
   "$KOTLIN_STDLIB:7779ec96b9acbf92ca023858ac04543f9d2c3bdf1722425fff42f25ff3acfc9b" \
   "$COMMONS_COMPRESS:e1522945218456f3649a39bc4afd70ce4bd466221519dba7d378f2141a4642ca" \
   "$COMMONS_IO:824268919b4b62f9f40f08c54381de5993b078f58667e332d17348ae019d72b9" \
+  "$COMMONS_LANG:4eeeae8d20c078abb64b015ec158add383ac581571cddc45c68f0c9ae0230720" \
   "$ANDROIDX_ANNOTATION:9aab326d9492800991854360ac248f493ce7f7c3183519309b78ace9e240f6f6"; do
   DEP="${SPEC%%:*}"; WANT="${SPEC##*:}"; GOT="$(sha256sum "$DEP" | awk '{print $1}')"
   [ "$GOT" = "$WANT" ] || { echo "!! sherpa 运行时依赖 SHA-256 不符：$DEP"; exit 1; }
@@ -543,7 +545,7 @@ done
 SHERPA_OUT="$P/out/sherpa-aar"
 rm -rf "$SHERPA_OUT"; mkdir -p "$SHERPA_OUT"
 ( cd "$SHERPA_OUT" && "$JAVA/jar" xf "$SHERPA_AAR" classes.jar jni )
-SHERPA_JARS="$SHERPA_OUT/classes.jar${CP_SEP}$KOTLIN_STDLIB${CP_SEP}$COMMONS_COMPRESS${CP_SEP}$COMMONS_IO${CP_SEP}$ANDROIDX_ANNOTATION"
+SHERPA_JARS="$SHERPA_OUT/classes.jar${CP_SEP}$KOTLIN_STDLIB${CP_SEP}$COMMONS_COMPRESS${CP_SEP}$COMMONS_IO${CP_SEP}$COMMONS_LANG${CP_SEP}$ANDROIDX_ANNOTATION"
 NATIVE_ROOT="$P/out/apk-native"
 mkdir -p "$NATIVE_ROOT/lib"
 if [ -d "$SHERPA_OUT/jni" ]; then
@@ -562,7 +564,7 @@ GEN_CP="$P/out/gen"
 if [ "$CP_SEP" = ";" ] && command -v cygpath >/dev/null 2>&1; then
   GEN_CP="$(cygpath -w "$P/out/gen")"
   SHIZUKU_JARS="$(cygpath -w "$P/out/shizuku-api/classes.jar")${CP_SEP}$(cygpath -w "$P/out/shizuku-provider/classes.jar")${CP_SEP}$(cygpath -w "$P/out/shizuku-aidl/classes.jar")"
-  SHERPA_JARS="$(cygpath -w "$SHERPA_OUT/classes.jar")${CP_SEP}$(cygpath -w "$KOTLIN_STDLIB")${CP_SEP}$(cygpath -w "$COMMONS_COMPRESS")${CP_SEP}$(cygpath -w "$COMMONS_IO")${CP_SEP}$(cygpath -w "$ANDROIDX_ANNOTATION")"
+  SHERPA_JARS="$(cygpath -w "$SHERPA_OUT/classes.jar")${CP_SEP}$(cygpath -w "$KOTLIN_STDLIB")${CP_SEP}$(cygpath -w "$COMMONS_COMPRESS")${CP_SEP}$(cygpath -w "$COMMONS_IO")${CP_SEP}$(cygpath -w "$COMMONS_LANG")${CP_SEP}$(cygpath -w "$ANDROIDX_ANNOTATION")"
 fi
 # javac 必须成功：失败立即中止（曾因 javac 找不到而产出无 MainActivity 的坏 APK，安装即闪退）
 # v48：vscreen 全量源码编入 APK（App 进程内嵌 Operit server，不再单独 jar 部署）
@@ -590,9 +592,9 @@ echo "== 3/7 d8 -> dex =="
 # class 列表写入 response file（Windows 命令行 8191 字符限制，98+ 个绝对路径会超长）
 CLS_RSP="$P/out/classes.rsp"
 if [ "$CP_SEP" = ";" ] && command -v cygpath >/dev/null 2>&1; then
-  { find "$P/out/classes" -name '*.class'; find "$SHIZUKU_CLS" -name '*.class'; printf '%s\n' "$SHERPA_OUT/classes.jar" "$KOTLIN_STDLIB" "$COMMONS_COMPRESS" "$COMMONS_IO" "$ANDROIDX_ANNOTATION"; } | cygpath -w -f - > "$CLS_RSP"
+  { find "$P/out/classes" -name '*.class'; find "$SHIZUKU_CLS" -name '*.class'; printf '%s\n' "$SHERPA_OUT/classes.jar" "$KOTLIN_STDLIB" "$COMMONS_COMPRESS" "$COMMONS_IO" "$COMMONS_LANG" "$ANDROIDX_ANNOTATION"; } | cygpath -w -f - > "$CLS_RSP"
 else
-  { find "$P/out/classes" -name '*.class'; find "$SHIZUKU_CLS" -name '*.class'; printf '%s\n' "$SHERPA_OUT/classes.jar" "$KOTLIN_STDLIB" "$COMMONS_COMPRESS" "$COMMONS_IO" "$ANDROIDX_ANNOTATION"; } > "$CLS_RSP"
+  { find "$P/out/classes" -name '*.class'; find "$SHIZUKU_CLS" -name '*.class'; printf '%s\n' "$SHERPA_OUT/classes.jar" "$KOTLIN_STDLIB" "$COMMONS_COMPRESS" "$COMMONS_IO" "$COMMONS_LANG" "$ANDROIDX_ANNOTATION"; } > "$CLS_RSP"
 fi
 "$D8" --release --lib "$AJ" --min-api 24 --output "$P/out/dex" @"$CLS_RSP" \
   || { echo "!! d8 失败"; exit 1; }
