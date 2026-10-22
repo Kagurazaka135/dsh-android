@@ -1,0 +1,4 @@
+android.title=String (🐋 DeepSeek Harness 运行中)
+android.text=String (引擎状态：运行中（端口 3080）)
+android.title=String (DeepSeek Harness 正在运行)
+android.text=String (AI 引擎保活中，后台任务持续执行)

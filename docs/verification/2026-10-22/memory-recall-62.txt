@@ -1,0 +1,16 @@
+T8 evidence excerpt, 2026-10-23 00:23 (Asia/Shanghai), APK 1.21.6/62
+
+Procedure:
+1. In the prior conversation, ask the app's model to persist a synthetic acceptance-test fact.
+2. Restart the Android app and create a separate conversation.
+3. Ask the new conversation to retrieve the saved mascot name and color, without repeating either answer.
+
+Observed new-conversation UI text:
+  acceptance-test-facts.md
+  , 360 bytes, last modified 2026-10-22 23:35:
+  # 验收测试事实（长期）
+  - 2026-10-22 · 用户告知的验收测试用事实：用户的测试吉祥物是一只橙色鲸鱼，名叫 **Amber61**。
+
+Location: app-private dshhome/notes/acceptance-test-facts.md
+Result: basic Markdown persistence and retrieval passed. The reply explicitly identified the note as the source. No dedicated memory tool was registered in that conversation; structured L3/L4 memory and nightly processing remain unverified.
+Only synthetic test data is reproduced here; full tool traces are kept local.

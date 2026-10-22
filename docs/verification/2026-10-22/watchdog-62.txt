@@ -1,0 +1,5 @@
+--------- beginning of main
+10-23 00:34:58.379 11263 11292 W DeepSeekHarness: engine unavailable for 3 checks; controlled respawn
+10-23 00:35:02.299 11263 26749 I DeepSeekHarness: node: dsh web: http://127.0.0.1:3080/?token=<redacted>
+10-23 00:35:02.299 11263 26749 I DeepSeekHarness: node: dsh web: opening the default browser; pass --no-open to disable
+10-23 00:35:02.599 11263 26749 I DeepSeekHarness: node: web-app: could not open the default browser because spawn xdg-open ENOENT; use the dsh web URL printed at startup

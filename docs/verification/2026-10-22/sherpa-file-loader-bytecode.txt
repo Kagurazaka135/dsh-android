@@ -1,0 +1,46 @@
+Compiled from "KeywordSpotter.kt"
+public final class com.k2fsa.sherpa.onnx.KeywordSpotter {
+  public static final com.k2fsa.sherpa.onnx.KeywordSpotter$Companion Companion;
+
+  public com.k2fsa.sherpa.onnx.KeywordSpotter(android.content.res.AssetManager, com.k2fsa.sherpa.onnx.KeywordSpotterConfig);
+    Code:
+       0: aload_2
+       1: ldc           #10                 // String config
+       3: invokestatic  #16                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_0
+       7: invokespecial #19                 // Method java/lang/Object."<init>":()V
+      10: aload_0
+      11: aload_2
+      12: putfield      #22                 // Field config:Lcom/k2fsa/sherpa/onnx/KeywordSpotterConfig;
+      15: nop
+      16: aload_0
+      17: aload_1
+      18: ifnull        33
+      21: aload_0
+      22: aload_1
+      23: aload_0
+      24: getfield      #22                 // Field config:Lcom/k2fsa/sherpa/onnx/KeywordSpotterConfig;
+      27: invokespecial #26                 // Method newFromAsset:(Landroid/content/res/AssetManager;Lcom/k2fsa/sherpa/onnx/KeywordSpotterConfig;)J
+      30: goto          41
+      33: aload_0
+      34: aload_0
+      35: getfield      #22                 // Field config:Lcom/k2fsa/sherpa/onnx/KeywordSpotterConfig;
+      38: invokespecial #30                 // Method newFromFile:(Lcom/k2fsa/sherpa/onnx/KeywordSpotterConfig;)J
+      41: putfield      #34                 // Field ptr:J
+      44: aload_0
+      45: getfield      #34                 // Field ptr:J
+      48: lconst_0
+      49: lcmp
+      50: ifeq          57
+      53: iconst_1
+      54: goto          58
+      57: iconst_0
+      58: ifne          78
+      61: iconst_0
+      62: istore_3
+      63: ldc           #36                 // String Invalid KeywordSpotterConfig: failed to create native KeywordSpotter
+      65: astore_3
+      66: new           #38                 // class java/lang/IllegalArgumentException
+      69: dup
+      70: aload_3
+      71: invokevirtual #42                 // Method java/lang/Object.toString:()Ljava/lang/String;

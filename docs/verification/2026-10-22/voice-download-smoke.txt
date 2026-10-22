@@ -1,0 +1,14 @@
+retry 1 delay: 2019 ms
+retry 2 delay: 5004 ms
+retry 3 delay: 15005 ms
+PASS 429/500/503 -> same URL -> 200 + SHA256
+retry 1 delay: 2008 ms
+PASS timeout retry
+PASS nonretryable 404 fails immediately
+PASS Range resume + SHA256
+PASS corrupt model rejected and removed
+retry 1 delay: 2012 ms
+retry 2 delay: 5010 ms
+retry 3 delay: 15011 ms
+PASS retry budget exhausted after four attempts
+VOICE DOWNLOAD SMOKE OK (6 scenarios)

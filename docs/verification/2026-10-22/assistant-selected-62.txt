@@ -1,0 +1,5 @@
+com.deepseek.harness/.DshVoiceInteractionService
+  mComponent=com.deepseek.harness/.DshVoiceInteractionService
+  mBound=true mService=android.service.voice.IVoiceInteractionService$Stub$Proxy@93fa094
+    com.deepseek.harness/.DshVoiceInteractionService
+    com.deepseek.harness/.DshRecognitionService

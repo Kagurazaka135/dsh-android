@@ -1,0 +1,1 @@
+PASS KWS bzip2/tar extraction using actual VoiceModelStore

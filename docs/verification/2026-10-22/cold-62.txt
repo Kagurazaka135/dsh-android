@@ -1,0 +1,56 @@
+10-23 00:35:50.404 27556 27556 I dsh-voice: system voice interaction service ready
+10-23 00:36:22.560 27556 27556 I DeepSeekHarness: console theme: 无配置（内置默认）
+10-23 00:36:22.562 27556 27556 I DeepSeekHarness: console-theme assets -> /storage/emulated/0/DeepSeekHarness/console ok=true
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: extract vscreen jar to external failed, fallback internal
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: java.io.FileNotFoundException: /storage/emulated/0/DeepSeekHarness/vscreen/vscreen_shizuku.jar: open failed: EACCES (Permission denied)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at libcore.io.IoBridge.open(IoBridge.java:574)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at java.io.FileOutputStream.<init>(FileOutputStream.java:259)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at java.io.FileOutputStream.<init>(FileOutputStream.java:208)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at com.deepseek.harness.MainActivity.extractVscreenDex(MainActivity.java:2049)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at com.deepseek.harness.MainActivity.onCreate(MainActivity.java:413)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.Activity.performCreate(Activity.java:9196)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.Activity.performCreate(Activity.java:9168)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.Instrumentation.callActivityOnCreate(Instrumentation.java:1544)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:4346)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:4569)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:126)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.servertransaction.TransactionExecutor.executeNonLifecycleItem(TransactionExecutor.java:179)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.servertransaction.TransactionExecutor.executeTransactionItems(TransactionExecutor.java:114)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.servertransaction.TransactionExecutor.execute(TransactionExecutor.java:86)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2902)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.os.Handler.dispatchMessage(Handler.java:107)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.os.Looper.loopOnce(Looper.java:282)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.os.Looper.loop(Looper.java:387)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.ActivityThread.main(ActivityThread.java:9500)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at java.lang.reflect.Method.invoke(Native Method)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:600)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1005)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: Caused by: android.system.ErrnoException: open failed: EACCES (Permission denied)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at libcore.io.Linux.open(Native Method)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at libcore.io.ForwardingOs.open(ForwardingOs.java:563)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at libcore.io.BlockGuardOs.open(BlockGuardOs.java:274)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at libcore.io.ForwardingOs.open(ForwardingOs.java:563)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at android.app.ActivityThread$AndroidOs.open(ActivityThread.java:9367)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	at libcore.io.IoBridge.open(IoBridge.java:560)
+10-23 00:36:22.649 27556 27556 W DeepSeekHarness: 	... 21 more
+10-23 00:36:22.673 27556 27556 I DeepSeekHarness: keep-alive service started
+10-23 00:36:22.674 27556 27556 I DeepSeekHarness: voice service started
+10-23 00:36:22.675 27556 27556 I DeepSeekHarness: overlay service starting
+10-23 00:36:22.676 27556 28219 I DeepSeekHarness: notify server listening on 3081
+10-23 00:36:22.678 27556 28218 W DeepSeekHarness: external dshroot not writable, fallback to internal
+10-23 00:36:22.678 27556 28218 W DeepSeekHarness: java.io.IOException: Operation not permitted
+10-23 00:36:22.678 27556 28218 W DeepSeekHarness: 	at java.io.UnixFileSystem.createFileExclusively0(Native Method)
+10-23 00:36:22.678 27556 28218 W DeepSeekHarness: 	at java.io.UnixFileSystem.createFileExclusively(UnixFileSystem.java:368)
+10-23 00:36:22.678 27556 28218 W DeepSeekHarness: 	at java.io.File.createNewFile(File.java:1022)
+10-23 00:36:22.678 27556 28218 W DeepSeekHarness: 	at com.deepseek.harness.MainActivity.externalDshrootWritable(MainActivity.java:3110)
+10-23 00:36:22.678 27556 28218 W DeepSeekHarness: 	at com.deepseek.harness.MainActivity.access$4600(MainActivity.java:73)
+10-23 00:36:22.678 27556 28218 W DeepSeekHarness: 	at com.deepseek.harness.MainActivity$54.run(MainActivity.java:2195)
+10-23 00:36:22.678 27556 28218 W DeepSeekHarness: 	at java.lang.Thread.run(Thread.java:1012)
+10-23 00:36:22.744 27556 28256 I dsh-voice: voice server listening on 3280
+10-23 00:36:23.011 27556 27556 I dsh-voice: TTS ready=true
+10-23 00:36:27.325 27556 28218 I DeepSeekHarness: extracted 3 entries (external=false, mode=internal-patch)
+10-23 00:36:29.452 27556 28218 I DeepSeekHarness: engine plugins refreshed from payload.zip, files=37
+10-23 00:36:33.317 27556 28471 I DeepSeekHarness: node: dsh web: http://127.0.0.1:3080/?token=<redacted>
+10-23 00:36:33.317 27556 28471 I DeepSeekHarness: engine token url captured
+10-23 00:36:33.317 27556 28471 I DeepSeekHarness: node: dsh web: opening the default browser; pass --no-open to disable
+10-23 00:36:33.651 27556 28471 I DeepSeekHarness: node: web-app: could not open the default browser because spawn xdg-open ENOENT; use the dsh web URL printed at startup
