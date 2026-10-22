@@ -569,6 +569,9 @@ if ! "$JAVA/javac" -encoding UTF-8 -source 1.8 -target 1.8 -bootclasspath "$AJ" 
   -classpath "$GEN_CP${CP_SEP}$SHIZUKU_JARS${CP_SEP}$SHERPA_JARS" -d "$P/out/classes" \
   "$P/src/com/deepseek/harness/MainActivity.java" "$P/src/com/deepseek/harness/ConsoleTheme.java" "$P/src/com/deepseek/harness/EngineCore.java" "$P/src/com/deepseek/harness/EngineService.java" "$P/src/com/deepseek/harness/OverlayService.java" "$P/src/com/deepseek/harness/UsageStatsHelper.java" "$P/src/com/deepseek/harness/AccessibilityService.java" "$P/src/com/deepseek/harness/VsreenBridgeService.java" "$P/src/com/deepseek/harness/LogShareProvider.java" "$P/src/com/deepseek/harness/LocalAuth.java" "$P/src/com/deepseek/harness/BrowserHost.java" "$P/src/com/deepseek/harness/BrowserService.java" "$P/src/com/deepseek/harness/BrowserIpc.java" "$P/src/com/deepseek/harness/KernelSelfCheck.java" "$P/src/com/deepseek/harness/SessionHeal.java" "$P/src/com/deepseek/harness/PayloadScript.java" "$P/src/com/deepseek/harness/SessionAdmin.java" "$P/src/com/deepseek/harness/VoiceService.java" \
   "$P/src/com/deepseek/harness/VoiceModelStore.java" \
+  "$P/src/com/deepseek/harness/DshVoiceInteractionService.java" \
+  "$P/src/com/deepseek/harness/DshVoiceInteractionSessionService.java" \
+  "$P/src/com/deepseek/harness/DshRecognitionService.java" \
   "$VSC_SRC"/*.java \
   "$P/out/gen/com/deepseek/harness/R.java" \
   >"$P/out/javac.log" 2>&1; then
