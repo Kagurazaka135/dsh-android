@@ -127,6 +127,7 @@ public class MainActivity extends Activity {
         // 否则旧版升级用户的外部 dshroot 保留旧 client.js → 页面仍是旧 UI（无竖屏适配）
         "dshroot/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js",
         "dshroot/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-cordis/lib/client.js",
+        "dshroot/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-settings-models/lib/client.js",
         "dshroot/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/mobile.css",
         "dshroot/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/mobile.js",
         "dshroot/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html",
@@ -289,7 +290,7 @@ public class MainActivity extends Activity {
         applyStatusBar(); // 状态栏/导航栏底色跟随 App 主题（浅色模式不再是一条黑条）
         installCrashHandler();
         checkAbiCompat(); // ② ABI 检测：非 arm64 设备引擎可能无法运行，弹提示
-        checkBatteryOptimization(); // ④ 电池优化引导：被限制时提示（挂后台可能被杀）
+        // Optional permissions, including battery optimization, stay in the console permissions page.
         // v1.12：不再在启动时自动检查更新（用户要求）；改为控制台底部的「检查更新」手动触发。
 
         webView = new WebView(this);
@@ -420,14 +421,11 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             Log.w(TAG, "start VsreenBridgeService failed", t);
         }
-        // 存储权限未授予时自动请求（写 /sdcard 提取 vscreen jar 需要；Android 10+ targetSdk28 必须运行时授权），
-        // 授权回调里重新提取外部 jar（首次启动提取会 EACCES，不弹窗用户根本不知道要授权）。
+        // The engine and default workspace use private storage. Request shared-storage access
+        // only when the user opens its permission entry; it must not block the first conversation.
         try {
             if (checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE") != PackageManager.PERMISSION_GRANTED) {
                 pendingVscreenExtract = true;
-                requestPermissions(new String[]{
-                        "android.permission.READ_EXTERNAL_STORAGE",
-                        "android.permission.WRITE_EXTERNAL_STORAGE"}, REQ_STORAGE);
             }
         } catch (Throwable ignored) {}
 
@@ -452,17 +450,14 @@ public class MainActivity extends Activity {
         }
 
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        if (prefs.getBoolean("setup_done", false)) {
-            showEngineScreen();
-            // 控制台仍是启动过程的可见过渡，但不再要求用户从这里点第二次。
-            showConsole();
-            if (!EngineCore.isUserStopped(this)) {
-                // 先置位再启动：就绪路径可能立即命中，不能丢掉自动进入意图。
-                engineAutoEnter = true;
-                startEngine();
-            }
-        } else {
-            showPermissionScreen();
+        if (!prefs.getBoolean("setup_done", false)) {
+            prefs.edit().putBoolean("setup_done", true).apply();
+        }
+        showEngineScreen();
+        showConsole();
+        if (!EngineCore.isUserStopped(this)) {
+            engineAutoEnter = true;
+            startEngine();
         }
     }
 
@@ -1316,6 +1311,8 @@ public class MainActivity extends Activity {
     private void guideFinish() {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("setup_done", true).apply();
         showEngineScreen();
+        showConsole();
+        engineAutoEnter = true;
         startEngine();
     }
 
@@ -2122,6 +2119,19 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (webView != null) webView.onResume();
+        if (pendingVscreenExtract && (checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE")
+                == PackageManager.PERMISSION_GRANTED
+                || (Build.VERSION.SDK_INT >= 30 && Environment.isExternalStorageManager()))) {
+            try {
+                File f = extractVscreenDex();
+                if (f != null) {
+                    vscreenDex = f;
+                    pendingVscreenExtract = false;
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "vscreen re-extract after storage permission failed", t);
+            }
+        }
         rootOk = null; // 从设置页/Shizuku 返回时重新探测 root
         refreshAllStatuses();
         // 从 Shizuku/设置页返回时重新检测
@@ -7750,7 +7760,7 @@ public class MainActivity extends Activity {
 
     // ---------- 权限页 ----------
     private String conPermSummary() {
-        String[] ids = {"storage", "notify", "overlay", "battery", "root", "shizuku", "a11y", "install"};
+        String[] ids = {"storage", "mic", "notify", "overlay", "battery", "root", "shizuku", "a11y", "install"};
         int ok = 0;
         for (int i = 0; i < ids.length; i++) if (conPermOk(ids[i])) ok++;
         return "已授权 " + ok + " / " + ids.length;
@@ -7758,6 +7768,9 @@ public class MainActivity extends Activity {
 
     private boolean conPermOk(String id) {
         try {
+            if ("mic".equals(id)) {
+                return checkSelfPermission("android.permission.RECORD_AUDIO") == PackageManager.PERMISSION_GRANTED;
+            }
             if ("storage".equals(id)) {
                 if (Build.VERSION.SDK_INT >= 30) return Environment.isExternalStorageManager();
                 return checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE") == PackageManager.PERMISSION_GRANTED;
@@ -7808,6 +7821,7 @@ public class MainActivity extends Activity {
         col.addView(cGrpTitle(t("title.grpPermBasic", "基本权限")), cTop(cGap(16)));
         LinearLayout c1 = cCardBox();
         addPermRow(c1, "所有文件访问", "读写 /sdcard，AI 才能碰你的文件", "storage");
+        addPermRow(c1, "麦克风", "听写、录音和唤醒词；需要时由你授权", "mic");
         addPermRow(c1, "通知", "AI 发通知 / 提醒", "notify");
         addPermRow(c1, "悬浮窗", "黑鲸鱼悬浮窗 / 虚拟屏预览", "overlay");
         addPermRow(c1, "电池优化", "设为「不限制」，否则切后台引擎会被杀", "battery");
@@ -7827,6 +7841,12 @@ public class MainActivity extends Activity {
         // 这里复用同一套 onWorkspaceRowClick()，使权限页也能查看 / 更改 / 恢复默认。
         addWorkspaceRow(c3);
         col.addView(c3, cTop(cGap(8)));
+
+        TextView guide = cButton("逐项配置权限（可选）", false);
+        guide.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { showPermissionScreen(); }
+        });
+        col.addView(guide, cTop(cGap(14)));
 
         col.addView(cNote("root 只能由你在 root 管理器（Magisk / KernelSU）里授予本应用；"
                 + "设备没 root 时这一项显示「本机无 root」。"), cTop(cGap(14)));
@@ -7893,6 +7913,15 @@ public class MainActivity extends Activity {
 
     private void conPermAction(String id) {
         try {
+            if ("mic".equals(id)) {
+                if (!conPermOk("mic")) {
+                    requestPermissions(new String[]{"android.permission.RECORD_AUDIO"}, REQ_MIC);
+                } else {
+                    startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:" + getPackageName())));
+                }
+                return;
+            }
             if ("storage".equals(id)) {
                 if (Build.VERSION.SDK_INT >= 30) {
                     Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);

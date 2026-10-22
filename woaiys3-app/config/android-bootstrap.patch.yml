@@ -1,0 +1,8 @@
+# Android has no desktop Documents lookup. Keep the default workspace in private storage.
+# These are deployment defaults; existing workspaces and provider credentials remain user data.
+- id: workspace-controller
+  config:
+    documentsDirectory: !!js (process.env.HOME + '/Documents')
+- id: ui-settings-models
+  config:
+    credentialOnboarding: false

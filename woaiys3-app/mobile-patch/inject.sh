@@ -15,6 +15,9 @@ if [ ! -d "$DIST" ]; then
   exit 1
 fi
 
+# Adjust only the Android shell's automatic preview notice; browser clients retain the notice.
+node "$PATCH_DIR/patch-bootstrap.mjs" "$DIST/../../dsh-client-ui-settings-models/lib/client.js"
+
 # 1. 复制 mobile.css / mobile.js 到 dist
 cp "$PATCH_DIR/mobile.css" "$DIST/mobile.css"
 echo "  已复制 mobile.css"

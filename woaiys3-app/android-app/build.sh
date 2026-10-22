@@ -463,6 +463,8 @@ else
 fi
 
 cp "$H/.dsh/cordis.patch.yml" "$P/staging/dshhome/"
+printf '\n' >> "$P/staging/dshhome/cordis.patch.yml"
+cat "$P/../config/android-bootstrap.patch.yml" >> "$P/staging/dshhome/cordis.patch.yml"
 cp "$H/.dsh/profiles/web/cordis.patch.yml" "$P/staging/dshhome/profiles/web/"
 cp "$H/.dsh/profiles/web/cordis.yml" "$P/staging/dshhome/profiles/web/"
 cp "$H/.dsh/profiles/web/package.json" "$P/staging/dshhome/profiles/web/"
