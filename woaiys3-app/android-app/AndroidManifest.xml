@@ -85,7 +85,8 @@
         <service
             android:name=".VoiceService"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone"
+            android:process=":voice" />
 
         <!-- 铏氭嫙灞忔帴鍏ユˉ锛氬惎鍔?Operit server + HTTP->binder 杞彂锛堟彃浠?API锛?-->
         <service
