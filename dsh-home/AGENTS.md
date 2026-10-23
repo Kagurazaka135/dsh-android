@@ -67,6 +67,14 @@
 | `browser_open` → `browser_snapshot` → `browser_find` → `browser_click`/`browser_type`/`browser_read` | **真·操作网页**（DOM 快照 + 点 + 读，比截图猜准） |
 | `browser_caps` · `browser_tabs` · `browser_nav` · `browser_scroll` | 能力自检 / 标签页 / 直接开网址 / 滚动 |
 
+> **`web_search` 失败、或你要找的是境外内容时 → 立刻改用浏览器搜**：
+> 用 `browser_open` 打开 `https://cn.bing.com/search?q=<关键词>`，再 `browser_read` 读结果。
+> 浏览器走系统网络栈，**代理（Clash/v2rayNG）开着就自动生效**，不用管环境变量。
+>
+> **⚠️ 搜索失败 ≠ 可以不搜。**
+> 不许跳过搜索继续答。要么换路（上面那条），要么明确告诉用户
+> 「这次没搜到，以下是没有搜索依据的回答」——**不许装作搜过了**。
+
 ### 通用干活工具
 - `bash` / `read` / `write` / `edit` / `glob` / `grep` / `read_image` —— 文件、命令与看图（**记笔记、改文件、看截图都靠它们**）
 - `todo_write` —— 多步任务列清单、跟踪进度
