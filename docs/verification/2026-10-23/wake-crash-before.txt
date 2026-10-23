@@ -1,0 +1,27 @@
+=== V-1 唤醒崩溃复现（62 / 1.21.6，未修）===
+时间: 2026-10-24 00:32:19 CST
+触发: Web UI 发送 'voice_wake start'
+
+--- pid 前后 ---
+before: app=9039 node=26580 time=00:32:14
+after: app=28961 node= time=00:32:32
+
+--- 崩溃签名 ---
+10-24 00:32:18.973  9039 28939 D nativeloader: Load /data/app/~~xsyLqGJCdMVNtMRCr4jPaA==/com.deepseek.harness-HG0loyi_ET1y5OXDGNATfQ==/lib/arm64/libsherpa-onnx-jni.so using ns clns-8 from class loader (caller=/data/app/~~xsyLqGJCdMVNtMRCr4jPaA==/com.deepseek.harness-HG0loyi_ET1y5OXDGNATfQ==/base.apk): ok
+10-24 00:32:19.817  9039 28943 W sherpa-onnx: /home/runner/work/sherpa-onnx/sherpa-onnx/sherpa-onnx/jni/keyword-spotter.cc:Java_com_k2fsa_sherpa_onnx_KeywordSpotter_newFromAsset:93
+10-24 00:32:19.817  9039 28943 W sherpa-onnx: config:
+10-24 00:32:19.817  9039 28943 W sherpa-onnx: KeywordSpotterConfig(feat_config=FeatureExtractorConfig(sampling_rate=16000, feature_dim=80, low_freq=20, high_freq=-400, dither=0, normalize_samples=True, snip_edges=False), model_config=OnlineModelConfig(transducer=OnlineTransducerModelConfig(encoder="/data/user/0/com.deepseek.harness/files/voice/models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx", decoder="/data/user/0/com.deepseek.harness/files/voice/models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile/decoder-epoch-12-avg-2-chunk-16-left-64.onnx", joiner="/data/user/0/com.deepseek.harness/files/voice/models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile/joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx"), paraformer=OnlineParaformerModelConfig(encoder="", decoder=""), wenet_ctc=OnlineWenetCtcModelConfig(model="", chunk_size=16, num_left_chunks=4), zipformer2_ctc=OnlineZipformer2CtcModelConfig(model=""), nemo_ctc=OnlineNeMoCtcModelConfig(model=""), t_on
+10-24 00:32:19.817  9039 28943 W sherpa-onnx: /home/runner/work/sherpa-onnx/sherpa-onnx/sherpa-onnx/csrc/file-utils.cc:ReadFile:91
+10-24 00:32:19.817  9039 28943 W sherpa-onnx: You are using an absolute path '/data/user/0/com.deepseek.harness/files/voice/models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx', but assetManager is NOT set to null.
+10-24 00:32:19.817  9039 28943 W sherpa-onnx: /home/runner/work/sherpa-onnx/sherpa-onnx/sherpa-onnx/csrc/file-utils.cc:ReadFile:95
+10-24 00:32:19.817  9039 28943 W sherpa-onnx: Please set assetManager to null when you load model files from the SD card
+10-24 00:32:19.817  9039 28943 W sherpa-onnx: /home/runner/work/sherpa-onnx/sherpa-onnx/sherpa-onnx/csrc/file-utils.cc:ReadFile:98
+10-24 00:32:19.817  9039 28943 W sherpa-onnx: See also https://github.com/k2-fsa/sherpa-onnx/issues/2562
+10-24 00:32:19.817  9039 28943 F sherpa-onnx: Read binary file: Load '/data/user/0/com.deepseek.harness/files/voice/models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx' failed
+
+--- 进程退出 ---
+10-24 00:32:19.872  2740  5475 I ActivityManager: Process com.deepseek.harness (pid 9039) has died: fg  TOP 
+10-24 00:32:19.875  1344  1344 I Zygote  : Process 9039 exited cleanly (255)
+10-24 00:32:19.887  2740  5475 I ActivityManager: note: ProcessRecord{2d2ac38 9039:com.deepseek.harness/u0a95} died, saving the exit info
+10-24 00:32:19.919 23128 23128 I Zygote  : Process 26326 exited cleanly (0)
+10-24 00:32:19.937  2740  5469 I ActivityManager: note: ProcessRecord{a35401b 26326:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0/u0a95i490} died, saving the exit info

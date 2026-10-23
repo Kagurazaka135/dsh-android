@@ -1,0 +1,36 @@
+=== V-5.3 看门狗回归（62 + V-2/V-3 修复）===
+时间: 2026-10-24 00:58-00:59 CST
+操作: AI 执行 kill -9 12015（App 同 uid，经引擎 bash 工具）
+
+--- 进程时间线 ---
+t+10s: app=26530 node=
+t+20s: app=26530 node=
+t+30s: app=26530 node=24445
+t+40s: app=26530 node=24445
+t+50s: app=26530 node=24445
+t+60s: app=26530 node=24445
+t+70s: app=26530 node=24445
+t+80s: app=26530 node=24445
+t+90s: app=26530 node=24445
+t+100s: app=26530 node=24445
+t+110s: app=26530 node=24445
+t+120s: app=26530 node=24445
+
+--- 关键日志 ---
+10-24 00:59:03.384 26530 11825 W DeepSeekHarness: engine unavailable for 3 checks; controlled respawn
+
+--- 结论 ---
+V-5.3 通过：App 进程 26530 全程存活；node 12015 → (空约 20s) → 24445；Web 端口恢复（401 = 鉴权页，服务在）。
+※ 首轮 t+10/20s 期间检测到 node 已死但尚未重拉，符合 3×15s 探测窗口设计。
+t+10s: app=14967 node=
+t+20s: app=14967 node=
+t+30s: app=14967 node=
+t+40s: app=14967 node=19709
+t+50s: app=14967 node=19709
+t+60s: app=14967 node=19709
+t+70s: app=14967 node=19709
+t+80s: app=14967 node=19709
+
+=== 63 / 1.21.7 复验（01:31-01:32）===
+早先 node=18886 → kill -9 → app=14967 存活 → t+40s 重拉 node=19709
+结论：F3 看门狗在 63 上不回退。
