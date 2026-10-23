@@ -785,7 +785,7 @@ public class VoiceService extends Service {
             OfflineRecognizerConfig config = new OfflineRecognizerConfig();
             config.setModelConfig(model);
             config.setDecodingMethod("greedy_search");
-            offlineRecognizer = new OfflineRecognizer(getAssets(), config);
+            offlineRecognizer = new OfflineRecognizer(null, config);
             return offlineRecognizer;
         }
     }
@@ -854,7 +854,7 @@ public class VoiceService extends Service {
         KeywordSpotterConfig config = new KeywordSpotterConfig();
         config.setModelConfig(model);
         config.setKeywordsFile(new File(dir, "keywords.txt").getAbsolutePath());
-        return new KeywordSpotter(getAssets(), config);
+        return new KeywordSpotter(null, config);
     }
 
     private void runWakeMonitor() {
