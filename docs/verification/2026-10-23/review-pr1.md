@@ -85,3 +85,26 @@
 未动：所有模型路径（仍 `getAbsolutePath()`）、SenseVoice 线程数、`greedy_search`、模型不打进 assets。
 
 `EngineCore.java` / `EngineService.java` 一行未动（`git status` 只显示 VoiceService.java 一处修改）。
+
+---
+
+## ⚠️ 与任务书前提不符的一项事实（影响合 PR 的判断）
+
+**本地 `master` 已经是 `230a75e`，不是任务书假设的"PR 未合并"状态。**
+
+```
+$ git log --oneline -1 master
+230a75e fix(build): javac 清单补回 EngineCore.java
+$ git log --oneline -1 origin/master
+5fec4c5 docs: 审计报告/真机测试报告/AGENTS草稿 + TODO 目标与特性
+$ git merge-base master pr1-verify
+230a75e
+```
+
+含义：
+- `master` 已包含 11 个 PR commit 里的 **前 7 个**（`429ff34` 起至 `230a75e`，SHA 完全相同，不是 cherry-pick 复制）。
+- 只有最后 4 个只在 `pr1-review` / `pr1-verify` 上：`b419e26`（助理壳）、`8ab9059`（首启私有工作区）、`5e4c86e`（Commons Lang）、`acd96e7`（文档）。
+- `origin/master` 停在 `5fec4c5`，本地 master 领先 7 个 commit 且**从未推送**。
+
+**对"PR 可不可以合"的影响**：如果按现状合并 `pr1-review`，实际只会带入最后 4 个 commit，而不是 11 个。这 4 个的复核结论是：`b419e26` 通过（壳）、`8ab9059` 通过（首启，但 F1 有波动见 P7）、`5e4c86e` 通过（真 bug 真修）、`acd96e7` 纯文档。
+**反过来说**：前 7 个 commit 已经在本地 master 上了，但**没有推送**，也没有经过本次任务书的任何验收。如果主人以为 master 是干净基线，这里有个认知差。
