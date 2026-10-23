@@ -127,6 +127,7 @@ public class VoiceService extends Service {
     private final Object wakeLock = new Object();
     private volatile boolean wakeEnabledByUser = false;
     private volatile int wakeRestoreAttempts = 0;
+    private volatile boolean resumeWakeAfterRecord = false;
 
     // ---- 系统听写 ----
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -416,7 +417,6 @@ public class VoiceService extends Service {
         try {
             if (!micGranted()) return jsonError("麦克风权限未授予：请在系统设置 → 应用 → DeepSeek Harness → 权限 → 麦克风 中开启");
             if (isSpeaking()) return jsonError("正在播报（半双工闸）：请等播报结束后再录音");
-            if (wakeRunning) return jsonError("唤醒监听正在占用麦克风：请先 voice_wake stop，再录音");
             if (recording) {
                 JSONObject o = new JSONObject();
                 o.put("ok", true);
@@ -435,6 +435,10 @@ public class VoiceService extends Service {
             if (!dir.exists() && !dir.mkdirs()) return jsonError("无法创建录音目录");
             final File out = new File(dir, "rec_" + System.currentTimeMillis() + ".wav");
 
+            // 录音临时让出麦克风；保留用户开关状态，录音结束时再恢复。
+            resumeWakeAfterRecord = wakeRunning && wakeEnabledByUser;
+            if (wakeRunning) stopWakeMonitor();
+
             int minBuf = AudioRecord.getMinBufferSize(16000,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
             int bufSize = Math.max(minBuf > 0 ? minBuf : 8192, 16384);
@@ -443,18 +447,20 @@ public class VoiceService extends Service {
                 rec = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000,
                         AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufSize);
             } catch (Throwable t) {
+                resumeWakeAfterRecording();
                 return jsonError("AudioRecord 创建失败: " + t.getMessage());
             }
             if (rec.getState() != AudioRecord.STATE_INITIALIZED) {
                 try { rec.release(); } catch (Throwable ignored) {}
+                resumeWakeAfterRecording();
                 return jsonError("麦克风被占用或不可用（AudioRecord 未初始化）");
             }
             recorder = rec;
-            recording = true;
             recordStopFlag = false;
             recordStartedAt = System.currentTimeMillis();
             final int maxMsF = maxMs;
             rec.startRecording();
+            recording = true;
             pushEvent("record.start", null);
 
             recordThread = new Thread(new Runnable() {
@@ -505,10 +511,21 @@ public class VoiceService extends Service {
                             d.put("durationMs", dur);
                             pushEvent("record.done", d);
                         } catch (Throwable ignored) {}
+                        resumeWakeAfterRecording();
                     }
                 }
             }, "voice-record");
-            recordThread.start();
+            try {
+                recordThread.start();
+            } catch (Throwable t) {
+                recording = false;
+                try { rec.stop(); } catch (Throwable ignored) {}
+                try { rec.release(); } catch (Throwable ignored) {}
+                recorder = null;
+                recordThread = null;
+                resumeWakeAfterRecording();
+                return jsonError("录音线程启动失败: " + t.getMessage());
+            }
 
             JSONObject o = new JSONObject();
             o.put("ok", true);
@@ -516,7 +533,23 @@ public class VoiceService extends Service {
             o.put("maxMs", maxMs);
             return o.toString();
         } catch (Throwable t) {
+            if (!recording) resumeWakeAfterRecording();
             return jsonError("record error: " + t.getMessage());
+        }
+    }
+
+    private void resumeWakeAfterRecording() {
+        boolean resume = resumeWakeAfterRecord;
+        resumeWakeAfterRecord = false;
+        if (!resume || !wakeEnabledByUser) return;
+        if (recording || listening || isSpeaking()) {
+            scheduleWakeRestore(1000L);
+            return;
+        }
+        if (startWakeMonitor()) {
+            try { JSONObject d = new JSONObject(); d.put("running", true); pushEvent("wake.state", d); } catch (Throwable ignored) {}
+        } else {
+            scheduleWakeRestore(1000L);
         }
     }
 
@@ -842,6 +875,7 @@ public class VoiceService extends Service {
             }
             if ("stop".equals(action)) {
                 wakeEnabledByUser = false;
+                resumeWakeAfterRecord = false;
                 wakeRestoreAttempts = 0;
                 mainHandler.removeCallbacks(wakeRestoreTask);
                 persistWakeEnabled(false);
