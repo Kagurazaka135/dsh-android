@@ -1,0 +1,1 @@
+2026-10-24T08:07:00.925Z [warn] tool-vscreen: [tool-vscreen] 未授予 root/Shizuku，虚拟屏工具未注册

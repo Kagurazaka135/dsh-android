@@ -1,0 +1,57 @@
+=== 注册的工具名 ===
+old: memory_brief, memory_recall, memory_note, memory_candidate, memory_promote, memory_organize
+new: memory_brief, memory_recall, memory_note, memory_candidate, memory_promote, memory_organize
+
+=== 6 工具 × 3 项 ===
+
+=== 非法参数（schema 校验） ===
+
+| 项 | 结果 |
+|---|---|
+| 工具名集合/顺序 | PASS |
+| memory_brief · parameters | PASS |
+| memory_brief · output.schema | PASS |
+| memory_brief · execute 返回 | PASS |
+| memory_brief · description | PASS |
+| memory_note · parameters | PASS |
+| memory_note · output.schema | PASS |
+| memory_note · execute 返回 | PASS |
+| memory_note · description | PASS |
+| memory_recall · parameters | PASS |
+| memory_recall · output.schema | PASS |
+| memory_recall · execute 返回 | PASS |
+| memory_recall · description | PASS |
+| memory_candidate · parameters | PASS |
+| memory_candidate · output.schema | PASS |
+| memory_candidate · execute 返回 | PASS |
+| memory_candidate · description | PASS |
+| memory_promote · parameters | PASS |
+| memory_promote · output.schema | PASS |
+| memory_promote · execute 返回 | PASS |
+| memory_promote · description | PASS |
+| memory_organize · parameters | PASS |
+| memory_organize · output.schema | PASS |
+| memory_organize · execute 返回 | PASS |
+| memory_organize · description | PASS |
+| memory_note · 非法参数报错 | PASS |
+| memory_candidate · 非法参数报错 | PASS |
+| memory_recall · 非法参数报错 | PASS |
+| memory_promote · 非法参数报错 | PASS |
+| memory_organize · 非法参数报错 | PASS |
+
+=== execute 返回样本（归一化后） ===
+memory_brief: {"ok":true,"facts":0,"candidates_pending":0,"message":"还没有 L4 摘要（facts：0 条，待升格候选：0 条）。先用 memory_note 记事实，或跑 memory_organize 生成摘要。"}
+memory_note: {"ok":true,"message":"已新建：默认模型 = deepseek-flash（id mem-<id>，共 1 个版本，旧版本全部保留）"}
+memory_recall: {"ok":true,"count":1,"message":"### [mem-<id>] 默认模型\n- 2026-10-24（当前）：deepseek-flash —— 等价测试\n- tags: config"}
+memory_candidate: {"ok":true,"message":"候选已记录：候选A（id cand-<id>，出现 1 次；累计 ≥3 次时建议升格）"}
+memory_promote: {"ok":true,"message":"已升格：候选A → L3 事实 [mem-<id>]。候选记录保留为 promoted。"}
+memory_organize: {"ok":true,"dry_run":true,"message":"[dry-run] 整理完成（2026-10-24）：扫描会话 0 场\n- L3 新建 0 条\n- L3 追加版本 0 条\n- L2 新候选 0 条\n- L4 摘要 无变化\n- 说明：等价测试\n- 提示：宿主未提供 sessionQuery 服务：本次整理只看 L2 候选，不扫会话\n- 提示：dry_run：不落盘"}
+
+=== 非法参数报错样本 ===
+memory_note: {"thrown":true,"name":"ToolArgsError","message":"invalid arguments: missing required property \"fact\"; missing required property \"value\"","code":"INVALID_ARGS"}
+memory_candidate: {"thrown":true,"name":"ToolArgsError","message":"invalid arguments: missing required property \"fact\"","code":"INVALID_ARGS"}
+memory_recall: {"thrown":true,"name":"ToolArgsError","message":"invalid arguments: \"limit\" must be a number","code":"INVALID_ARGS"}
+memory_promote: {"thrown":true,"name":"ToolArgsError","message":"invalid arguments: \"id\" must be a string","code":"INVALID_ARGS"}
+memory_organize: {"thrown":true,"name":"ToolArgsError","message":"invalid arguments: \"dry_run\" must be a boolean","code":"INVALID_ARGS"}
+
+ALL EQUAL
