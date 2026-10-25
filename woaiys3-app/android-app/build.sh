@@ -485,7 +485,14 @@ cp -r "$MEMORY_PLUGIN_SRC" "$P/staging/dshhome/node_modules/dsh-memory"
 if grep -rqE "from ['\"]@deepseek-ai|require\(['\"]@deepseek-ai" "$P/staging/dshhome/node_modules/dsh-memory/lib"; then
   echo "!! 记忆插件 lib/ 仍引用 @deepseek-ai（零依赖闸门失败），中止"; exit 1
 fi
-echo "  记忆插件: dshhome/node_modules/dsh-memory（$(du -sh "$P/staging/dshhome/node_modules/dsh-memory" | cut -f1)）"
+MEMORY_VER=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MEMORY_PLUGIN_SRC/package.json" | head -1)
+echo "  记忆插件: dshhome/node_modules/dsh-memory v${MEMORY_VER:-?}（$(du -sh "$P/staging/dshhome/node_modules/dsh-memory" | cut -f1)）"
+# 陈旧闸门：memory/ 是 G:\code\dsh-memory 的手工副本，很容易忘同步（2026-10-25 就干过：
+# 主仓库已经 0.2.4，打包源还是 0.1.2，装进 APK 的老代码还硬编码着 127.0.0.1:9999）。
+# 每次打包都把它喊出来，版本号肉眼可核。设 SKIP_MEMORY_VERSION_CHECK=1 可跳过。
+if [ "${SKIP_MEMORY_VERSION_CHECK:-0}" != "1" ]; then
+  echo "  ⚠ 确认这是最新版？对照上游仓库 G:\\code\\dsh-memory（同步用 ./sync-dsh-memory.sh）"
+fi
 
 # AGENTS.md（用户全局指令）：dsh 的 agent-instructions 从 $DSH_HOME/AGENTS.md 读（USER_GLOBAL_FILE）。
 # system.md（行为准则 · 主观层）单独进包（$DSH_HOME/system.md），并在构建期拼接进 AGENTS.md ——
