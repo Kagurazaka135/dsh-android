@@ -1,0 +1,63 @@
+== 0/7 组装 payload ==
+  BOM 闸门：payload 内 JSON/YAML 无 BOM ✓
+  Android preview-notice adaptation already present
+  已复制 mobile.css
+  已复制 mobile.js
+  index.html 已含 mobile.css 引用，跳过
+  index.html 已含 mobile.js 引用，跳过
+  viewport 已含 user-scalable=no，跳过
+== 完成 ==
+  内置 rg: runtime/bin/rg
+  内置 curl: runtime/bin/curl
+  内核版本标记: 0.2.0-rc.2
+  kernel-manifest.tsv: 25857 个文件, 4533 KB（树合计 197.4 MB, 用时 298.2s）
+  内核树清单闸门：25859 行 ✓（4641827 字节）
+  会话自愈脚本闸门：475 行 ✓（assets/session-heal.mjs）
+  会话管理脚本闸门：285 行 ✓（assets/session-admin.mjs）
+  内置 pnpm: bin/pnpm + pnpm/ (7.8M)
+  内置 git: bin/git (源 G:/code/dsh-android/devhome/payload/bin/git) + git/ (3.9M)
+  内置 python: bin/python3 + python/ (26M)
+  内置 npm: bin/npm + bin/npx + npm/ (13M)
+== vscreen jar ==
+  vscreen_shizuku.jar: 15143 bytes
+  vscreen_jar_sha256.txt: d9675cdf56d58755d990f205cfaac1c6493430a60d05add52e68fad2f5cafd54
+  控制台主题规范: assets/console-theme/（4 个文件）
+  已注入 AGENTS.md（含拼接的 system.md，11745 字节）+ system.md（单独进包）
+--- payload 各部分大小 ---
+196M	/g/code/dsh-android/woaiys3-app/android-app/staging/runtime
+245M	/g/code/dsh-android/woaiys3-app/android-app/staging/dshroot
+29K	/g/code/dsh-android/woaiys3-app/android-app/staging/dshhome
+3.5M	/g/code/dsh-android/woaiys3-app/android-app/staging/bin
+payload.zip: 150M
+== 1/7 资源编译 (aapt) ==
+== 2/7 javac ==
+  sherpa-onnx 1.13.8 AAR + Kotlin 1.7.20 + KWS 解包器已就绪
+import android.webkit.WebView;;
+                              ^
+Binary file /g/code/dsh-android/woaiys3-app/android-app/out/javac.log matches
+  javac 完成，class 数：434
+== 3/7 d8 -> dex ==
+  classes.dex 含 MainActivity，4897908 bytes
+== 4/7 aapt 打包 + assets ==
+ 'classes.dex'...
+ 'lib/arm64-v8a/libonnxruntime.so'...
+ 'lib/arm64-v8a/libsherpa-onnx-c-api.so'...
+ 'lib/arm64-v8a/libsherpa-onnx-cxx-api.so'...
+ 'lib/arm64-v8a/libsherpa-onnx-jni.so'...
+== 5/7 zipalign ==
+== 6/7 签名 ==
+== 7/7 校验 ==
+Signer #1 certificate DN: CN=dsh-android, OU=glm-build, O=dsh-android, C=CN
+Signer #1 certificate SHA-256 digest: 57418c9e3cd6c205fe3a721c7585bbb8c0dde449451360d7e89e7a10fcf9684e
+Signer #1 certificate SHA-1 digest: f631e268a09b17a9a6350a72417cf6c23c612b5e
+Signer #1 certificate MD5 digest: 5523852c4df552fff4e425d593b4c8b8
+package: name='com.deepseek.harness' versionCode='64' versionName='1.21.8' platformBuildVersionName='13' platformBuildVersionCode='33' compileSdkVersion='33' compileSdkVersionCodename='13'
+sdkVersion:'24'
+targetSdkVersion:'28'
+uses-permission: name='android.permission.INTERNET'
+uses-permission: name='android.permission.READ_EXTERNAL_STORAGE'
+uses-permission: name='android.permission.WRITE_EXTERNAL_STORAGE'
+uses-permission: name='android.permission.MANAGE_EXTERNAL_STORAGE'
+uses-permission: name='android.permission.SYSTEM_ALERT_WINDOW'
+-rw-r--r-- 1 漫不经心的干饭人 197609 172334749 Oct 24 02:54 /g/code/dsh-android/woaiys3-app/android-app/DeepSeekHarness.apk
+BUILD OK -> /g/code/dsh-android/woaiys3-app/android-app/DeepSeekHarness.apk

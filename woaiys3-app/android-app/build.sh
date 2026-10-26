@@ -471,6 +471,29 @@ cp "$H/.dsh/profiles/web/package.json" "$P/staging/dshhome/profiles/web/"
 cp "$H/.dsh/profiles/web/pnpm-workspace.yaml" "$P/staging/dshhome/profiles/web/"
 cp "$H/.dsh/settings.yaml" "$P/staging/dshhome/" 2>/dev/null   || cp "$H/.dsh/settings.yaml.imported" "$P/staging/dshhome/settings.yaml"   || { echo "!! 找不到 .dsh/settings.yaml（也没有 settings.yaml.imported），中止"; exit 1; }
 
+# 第三方 dsh 插件：装到 $DSH_HOME/node_modules/。
+# dsh 解析插件裸包名（如 dsh-memory）时基准目录是 $DSH_HOME/profiles/web/，
+# Node 逐级向上查找 node_modules 会命中 dshhome/node_modules —— 不能塞进 dshroot（那是内核自己的树）。
+# 源 = 仓库内被跟踪的 memory/（dsh-memory 的一份副本，绝不放 gitignored 的 devhome）。
+MEMORY_PLUGIN_SRC="$P/../../memory"
+if [ ! -f "$MEMORY_PLUGIN_SRC/package.json" ]; then
+  echo "!! 找不到记忆插件副本：$MEMORY_PLUGIN_SRC/package.json"; exit 1
+fi
+mkdir -p "$P/staging/dshhome/node_modules"
+cp -r "$MEMORY_PLUGIN_SRC" "$P/staging/dshhome/node_modules/dsh-memory"
+# 零依赖硬闸门：lib/ 里出现任何 @deepseek-ai 的 import/require，真机上必然 failed to import。
+if grep -rqE "from ['\"]@deepseek-ai|require\(['\"]@deepseek-ai" "$P/staging/dshhome/node_modules/dsh-memory/lib"; then
+  echo "!! 记忆插件 lib/ 仍引用 @deepseek-ai（零依赖闸门失败），中止"; exit 1
+fi
+MEMORY_VER=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MEMORY_PLUGIN_SRC/package.json" | head -1)
+echo "  记忆插件: dshhome/node_modules/dsh-memory v${MEMORY_VER:-?}（$(du -sh "$P/staging/dshhome/node_modules/dsh-memory" | cut -f1)）"
+# 陈旧闸门：memory/ 是 G:\code\dsh-memory 的手工副本，很容易忘同步（2026-10-25 就干过：
+# 主仓库已经 0.2.4，打包源还是 0.1.2，装进 APK 的老代码还硬编码着 127.0.0.1:9999）。
+# 每次打包都把它喊出来，版本号肉眼可核。设 SKIP_MEMORY_VERSION_CHECK=1 可跳过。
+if [ "${SKIP_MEMORY_VERSION_CHECK:-0}" != "1" ]; then
+  echo "  ⚠ 确认这是最新版？对照上游仓库 G:\\code\\dsh-memory（同步用 ./sync-dsh-memory.sh）"
+fi
+
 # AGENTS.md（用户全局指令）：dsh 的 agent-instructions 从 $DSH_HOME/AGENTS.md 读（USER_GLOBAL_FILE）。
 # system.md（行为准则 · 主观层）单独进包（$DSH_HOME/system.md），并在构建期拼接进 AGENTS.md ——
 # 0.2.0-rc.2 内核没有独立的 system.md 加载器，且默认 standard preset 的 dsh-persona 会 shadow

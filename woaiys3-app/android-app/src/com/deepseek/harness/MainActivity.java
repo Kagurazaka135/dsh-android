@@ -2500,8 +2500,12 @@ public class MainActivity extends Activity {
         // v1.13：幂等 —— 重复调用（用户连点「启动引擎」、看门狗重试）会对同一端口二次 bind，
         // 真机日志里表现为“notify server stopped + EADDRINUSE”，期间通知通道短暂不可用。
         if (notifyServerStarted) return;
-        notifyServerStarted = true;
         final int port = notifyPort();
+        if (portListening(port)) {
+            Log.i(TAG, "notify server already listening on " + port + ", skip bind");
+            return;
+        }
+        notifyServerStarted = true;
         new Thread(new Runnable() {
             @Override public void run() {
                 ServerSocket ss = null;

@@ -2,8 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     package="com.deepseek.harness"
-    android:versionCode="63"
-    android:versionName="1.21.7">
+    android:versionCode="65"
+    android:versionName="1.21.9">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28" />
 
@@ -85,7 +85,8 @@
         <service
             android:name=".VoiceService"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone"
+            android:process=":voice" />
 
         <!-- 铏氭嫙灞忔帴鍏ユˉ锛氬惎鍔?Operit server + HTTP->binder 杞彂锛堟彃浠?API锛?-->
         <service
