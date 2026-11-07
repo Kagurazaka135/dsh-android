@@ -75,4 +75,16 @@ for _fl in confirm plain; do
   "$JAVA_BIN/java" -cp "$WIN_OUT\\throwing\\$_fl;$WIN_AJ" com.deepseek.harness.guard.ReverseTest
 done
 
+# ---- 反例：/wake stop 不许清语音会话（P0 回归）----
+# 这个端点是 HTTP，模型通过 voice_wake 工具就能调到。清了 voiceSessionUntil
+# 就等于让它自己跳出「语音只能聊天」，所以 stop 分支里不许出现这行赋值。
+VS="$P/src/com/deepseek/harness/VoiceService.java"
+echo "== P0 回归：/wake stop 不得清语音会话 =="
+if grep -A12 '"stop"\.equals(action)' "$VS" | grep -q 'voiceSessionUntil = 0L'; then
+  echo "  FAIL  /wake stop 分支里又出现了 voiceSessionUntil = 0L"
+  echo "        （模型可以借此跳出「语音只能聊天」的限制）"
+  exit 1
+fi
+echo "  ok    /wake stop 分支未清语音会话"
+
 echo "ALL GUARD TESTS PASSED"

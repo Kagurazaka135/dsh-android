@@ -892,7 +892,10 @@ public class VoiceService extends Service {
                 wakeEnabledByUser = false;
                 resumeWakeAfterRecord = false;
                 wakeRestoreAttempts = 0;
-                voiceSessionUntil = 0L;
+                // 故意不清 voiceSessionUntil：停监听 ≠ 结束这一轮语音交互。
+                // 这个端点模型也能调（voice_wake 工具），清了就等于让它自己
+                // 退出「语音只能聊天」的限制。会话窗口只由真实语音事件关闭：
+                // wake.timeout / wake.error / onDestroy。
                 mainHandler.removeCallbacks(wakeRestoreTask);
                 persistWakeEnabled(false);
                 stopWakeMonitor();
