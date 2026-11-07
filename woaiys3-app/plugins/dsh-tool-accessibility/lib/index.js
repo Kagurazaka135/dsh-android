@@ -349,7 +349,9 @@ function apply(ctx) {
       }
       const params = { text: String(args.text) };
       if (args.paste === true) params.mode = "paste";
-      const raw = await a11yRequest("/input", params, 8000);
+      // 权限 flavor：通讯类 App 里输入文字会弹原生确认框（需要人读完原文再点），
+      // 所以这条请求的客户端超时要大于 Guard.ASK_TIMEOUT_MS（20s）。
+      const raw = await a11yRequest("/input", params, 30000);
       const v = parseResult(raw);
       if (!v.ok) return { ok: false, error: v.error || GUIDE_TEXT };
       return {

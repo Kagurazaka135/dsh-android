@@ -600,6 +600,7 @@ public class VsreenBridgeService extends Service {
     public void onCreate() {
         super.onCreate();
         instance = this;   // v1.13.11：供小鲸鱼面板回调「重新打开预览窗」
+        com.deepseek.harness.guard.Guard.install(this);
         running = true;
         new Thread(new Runnable() {
             @Override public void run() { ensureCoreServer(); }
@@ -688,6 +689,7 @@ public class VsreenBridgeService extends Service {
                     + " /system/bin/app_process /system/bin " + CORE_MAIN
                     + " --port " + CORE_PORT + " --dir \"" + rootDir + "\""
                     + " --token " + LocalAuth.token(VsreenBridgeService.this)
+                    + " --voice-port " + voicePort()
                     + " >> /data/local/tmp/vscreen.log 2>&1";
             Log.i(TAG, "starting core server: " + cmd);
             IShizukuService svc = IShizukuService.Stub.asInterface(Shizuku.getBinder());
@@ -826,7 +828,10 @@ public class VsreenBridgeService extends Service {
                 }
             }
             // 调用方鉴权：本机任意应用都能连 8999，必须有令牌（插件从 APP_LOCAL_TOKEN 带头）
-            if (!LocalAuth.ok(LocalAuth.token(this), headAll, path)) {
+            // confirm 包：代理层先过 Guard（语音通道在这里就拦下）；真正的「动作 × 前台 App」
+            // 判定在 8998 核心侧做 —— 只有核心知道自己那块虚拟屏里跑的是哪个 App。
+            if (!LocalAuth.ok(LocalAuth.token(this), headAll, path, new String(reqBody, "UTF-8"),
+                    "", com.deepseek.harness.guard.Guard.Origin.VSCREEN)) {
                 Log.w(TAG, "vscreen 代理请求被拒（令牌缺失或错误）：" + path);
                 writeJson(s, LocalAuth.denied());
                 return;
@@ -881,6 +886,23 @@ public class VsreenBridgeService extends Service {
     }
 
     // ==================== v1.18.0：鉴权 / 完整性小工具 ====================
+
+    /** 语音端口：与 VoiceService 同一口径（按包名派生引擎端口 + 200）。 */
+    private int voicePort() {
+        int def;
+        try {
+            String pkg = getPackageName();
+            int engine = pkg.contains("beta") ? 3082 : pkg.contains("compat") ? 3084 : 3080;
+            def = engine + 200;
+        } catch (Throwable t) {
+            def = 3280;
+        }
+        try {
+            return getSharedPreferences("dsh_prefs", MODE_PRIVATE).getInt("voice_port", def);
+        } catch (Throwable t) {
+            return def;
+        }
+    }
 
     /** 回一个 JSON（拒绝响应等）。 */
     private void writeJson(Socket s, String json) {

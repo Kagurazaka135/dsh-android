@@ -45,6 +45,7 @@
 **E. 记忆（下次还记得）**
 - [x] I-1 包装：`dsh-memory@0.1.1` 已进入 Android payload 并加入 `cordis.patch.yml`；现有 7 个插件保留。
 - [ ] 跨会话 L3 版本化事实 + L4 摘要 + 夜间整理：插件加载日志、`memory_*` 工具、跨会话回读和定时任务均未验证（设备未连接）。
+- [ ] **夜间整理准点触发**（见 A7）：现在的「4 点」实为「4 点或之后第一次启动引擎」——schedule 是进程内 `setTimeout`，App 不常驻时到点无人在场。
 - [ ] **操作记忆**（记住"怎么做到的"，下次直接读，免重复试错）
 
 **F. 模型与接入（自己的脑子）**
@@ -103,8 +104,69 @@
 ### ✅ A4 · AGENTS.md 定稿 + 进包
 - 已在手机核对 `dshhome/AGENTS.md`（11200 字节）和 `system.md`（2055 字节），与构建产物一致。注意本标题 A4 与交接表的“唤醒开关 A4”编号不同。
 
+### ⬜ A7 · 闹钟踢引擎（让夜间整理真的在 4 点跑）
+
+**为什么**：dsh schedule 是进程内 `setTimeout`（`packages/schedule/schedule/src/runtime.ts:161`），`latestDueOccurrence()` 只补跑最近一次（`domain.ts:866`，注释原文 `not across its missed history`）。App 不常驻 → 4 点没人到场 → 实际变成「4 点之后第一次启动引擎」。仿系统闹钟，到点把引擎叫起来，schedule 启动时会 `requestDrive()` 自行补跑，**记忆插件一行都不用改**。
+
+**现状**：没有任何 AlarmManager / WorkManager / BOOT_COMPLETED（`grep` 全空）。
+
+**做法**（最小版）
+1. 新增 `AlarmKick.java`：`BroadcastReceiver`，收到闹钟 → `startForegroundService(EngineService)`；另接 `BOOT_COMPLETED` 重挂闹钟
+2. `AndroidManifest.xml` 注册两个 receiver + `RECEIVE_BOOT_COMPLETED` 权限
+3. 用 `setExactAndAllowWhileIdle`（能穿透 Doze，不像 `setAlarmClock` 那样挂闹钟图标）
+4. 时间存 `SharedPreferences`，默认 `04:00`；控制台给一行可改
+
+**有利条件**：targetSdk 仍是 28 —— `SCHEDULE_EXACT_ALARM` 是 targetSdk 31+ 的 Android 12 才要的，这里**不用额外申请**；Android 12 后台启动前台服务的限制也豁免 targetSdk < 31。
+
+**判据**
+- 到点后引擎真起来（`healthOk`），`memory-organizer` 会话出现当天整理简报
+- 杀掉 App → 到点仍能起来
+- 关机重启 → 闹钟仍挂在（BOOT_COMPLETED 生效）
+- 用户手动点过「停止引擎」时**不踢**（`EngineCore.isUserStopped` 已挡在 `EngineService.java:45`，验证它确实拦住）
+
+**已知坑**
+- 叫醒到引擎真正起来约 **45 秒**：看门狗 15s 一轮 × 连续 3 次失败才 respawn（`EngineService.java:25-27`）。要快可在服务启动时直接 spawn
+- 踢完引擎会一直挂着（前台服务）。省电方案（"我叫醒的，跑完自己停"）等实测再定
+- **插件层做不到**：插件跑在 node 里，4 点那一刻没有进程就没有定时器
+
 ### ⬜ A5 · 特性清单里剩的
 免常驻 · 系统助理列表 · 操作记忆 · API 优先 · 半屏界面 · 背景（详见上文特性清单与 `ROADMAP.md`）。
+
+### 🔄 A5.5 · 权限分档（flavor + guard）
+**2026-11-06 验收：骨架合格，不变量 ①③④ 真做到；② 有一处可执行的绕过（见 P0）。真机仍一项未验。**
+验收报告：[验收-2026-11-06-权限-flavor.md](验收-2026-11-06-权限-flavor.md)
+- [x] `BUILD_FLAVOR` 选择（默认 `confirm`）+ `BuildInfo.java` 构建期生成、不入库
+- [x] `guard/`（Guard / Decision / GuardImpl / Channel / Consent）+ `Grant`：5 个本地 HTTP 服务共用
+- [x] 语音通道：会话由 `VoiceService` 原生生成（`/voice-state`），Node 只能读不能写 —— ⚠️ **只对了开窗那一半，关窗有洞（P0）**
+- [x] 前台包名取 `AccessibilityService.activePackage`（系统事件），不用模型自述
+- [x] **主机侧三跑**：交付方已跑（confirm / plain / bogus 三条都符合预期）；验收方另跑 `tools/guard-tests/run.sh` 全绿
+- [x] 构建期断言实测：四道（值校验 / 生成物字符串 / dex 类存在 / class 常量池）
+- [x] 反例：规则抛异常 → deny（ReverseTest 实测红）、前台包名读不到 → deny
+- [ ] **P0 · 模型能自己关掉语音会话** ← 修完才能真机验语音那条
+- [ ] 真机：日常操作零弹窗（生死线）/ 微信输入弹窗展示原文 / 支付宝读屏拒绝 / 语音通道拒设备动作
+- [ ] 真机：`pm install -r` 覆盖成 plain 再覆盖回 confirm（数据权限保留）
+
+#### 🔴 P0 · 语音会话可以被模型自己关掉（2026-11-06 验收发现）
+
+**链条**：喊「小鲸鱼」开窗 120s → 模型调 `voice_wake({action:"stop"})` → `POST /wake`
+→ `GuardImpl.classify()` 的 if 链里**没有 `/wake`** → `return null` → allow
+→ `VoiceService.java:895` `voiceSessionUntil = 0L` → 模型调 `android_tap` → 按文字通道放行。
+
+**实测**：`/wake stop (VOICE_SERVICE) 语音会话中 -> ALLOW`。
+
+⚠️ 注意 `Guard.check` 里 `if (origin == VOICE_SERVICE) return allow;` 在语音检查**之前**，
+所以给 `/wake` 加 `blockedInVoice` 也没用——必须单独处理。
+
+**附带损害**：同一条 stop 还会 `persistWakeEnabled(false)`，持久化关掉用户的唤醒开关。
+与 2026-10-26「方向锁定被关」同类事故，且发生在权限层本该拦住它的时刻。
+
+**修法（两半）**：
+1. **最小**：删 `VoiceService.java:895` 的 `voiceSessionUntil = 0L;`。
+   停监听 ≠ 结束这次交互，窗口只该由 `wake.timeout` / `onDestroy` 关。
+2. **干净（另起一轮）**：人和模型走同一个 HTTP 端点，服务端分不清谁在调。
+   要把「用户关唤醒」改成**进程内直调**（悬浮窗在同进程），`/wake` 这个 HTTP 端点只留给 Node。
+
+**要补的测试**：给不变量②写反例——现在①②只靠"实现得对"保证，③④才有测试兜着，P0 正好落在没覆盖的那条。
 
 ### ⬜ A6 · 杂
 - Copilot 试手（`Copilot-交接.md` 写了没用）

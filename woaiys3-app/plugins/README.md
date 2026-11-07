@@ -1,13 +1,14 @@
 # plugins/ —— 手机端自定义 DSH 工具插件
 
-本项目给 DeepSeek Harness 增加的两个 Android 专属能力插件，**全部通过 Shizuku 特权通道执行**（免 Root）。
+本项目给 DeepSeek Harness 增加的 Android 专属能力插件。前两个走 Shizuku 特权通道执行（免 Root）；`webread` 不碰原生层，纯插件实现。
 
 | 插件 | 包名 | 能力 |
 |---|---|---|
 | `dsh-tool-shizuku` | `@deepseek-ai/dsh-tool-shizuku` | **特权 shell**：任意系统命令（`pm` / `am` / `settings` / `dumpsys` / `input` / `screencap`…），异步执行 + 环境消毒 + dex 只读自愈 |
 | `dsh-tool-android` | `@deepseek-ai/dsh-tool-android` | **结构化系统操作**：包管理（安装/卸载/清数据/授权）、应用管理（启动/强制停止）、系统设置读写、截图、模拟输入（点击/滑动/文本/按键） |
+| `dsh-tool-webread` | `@deepseek-ai/dsh-tool-webread` | **无头上网阅读**：`web_probe` 探测系统 WebView 内核、`web_read` 按引擎阶梯取网页正文（native → 原始 HTTP → 明确报错），不改原生代码、不留页签 |
 
-> 有了这两个插件，AI 不再只是"聊天"，而是能**真正操作你的手机**——这也是本项目和纯聊天 App 的核心区别。
+> 有了这些插件，AI 不再只是"聊天"，而是能**真正操作你的手机、也能自己上网读资料**——这也是本项目和纯聊天 App 的核心区别。
 
 ## 如何启用
 

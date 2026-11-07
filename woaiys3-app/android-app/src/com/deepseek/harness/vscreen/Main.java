@@ -80,6 +80,8 @@ public class Main {
     private static int sPort = DEFAULT_PORT;
     private static String sExternalRoot = DEFAULT_EXTERNAL_ROOT;
     private static String sToken = "";
+    /** 语音服务端口（App 拉起本进程时用 --voice-port 传入）：只用于 /voice-state 探测。 */
+    private static int sVoicePort = 0;
 
     private static final ConcurrentHashMap<Integer, Session> sSessions = new ConcurrentHashMap<>();
     private static final AtomicInteger sDisplaySeq = new AtomicInteger(0);
@@ -88,6 +90,9 @@ public class Main {
     public static void main(String[] args) {
         Looper.prepareMainLooper();
         parseArgs(args);
+        // confirm 包：虚拟屏核心也要过同一道 Guard。令牌是身份，Guard 才是授权；
+        // 语音通道靠 --voice-port 访问 VoiceService 的原生会话状态来判定（Node 伪造不了）。
+        com.deepseek.harness.guard.Guard.configureVoiceProbe(sVoicePort, sToken);
         log("server starting uid=" + Process.myUid() + " sdk=" + Build.VERSION.SDK_INT
                 + " brand=" + Build.BRAND + " port=" + sPort + " dir=" + sExternalRoot, null);
 
@@ -162,6 +167,11 @@ public class Main {
             } else if ("--token".equals(a) && i + 1 < args.length) {
                 // v1.18.0：8998 是 shell 身份的进程，本机任意应用都能连 127.0.0.1 —— 必须校验令牌
                 sToken = args[++i].trim();
+            } else if ("--voice-port".equals(a) && i + 1 < args.length) {
+                try {
+                    sVoicePort = Integer.parseInt(args[++i].trim());
+                } catch (Throwable ignored) {
+                }
             }
         }
     }
@@ -180,6 +190,8 @@ public class Main {
         long frameTs;
         volatile boolean pumping = true;
         volatile boolean sawFrame = false;
+        /** 这块虚拟屏里最近一次由 /vscreen/launch 成功启动的包名（原生侧记录，模型改不了）。 */
+        volatile String launchPkg = "";
 
         Session(int displayId, int width, int height, VirtualDisplay vd, ImageReader reader) {
             this.displayId = displayId;
@@ -528,6 +540,9 @@ public class Main {
         if (out.contains("Error:") || out.startsWith("exec失败")) {
             return err("启动失败：" + out.replace("\n", " "));
         }
+        // 原生侧记下这块虚拟屏当前承载的 App：后续 see / tap / swipe 的「动作 × App」判定用它，
+        // 不用模型自述的包名。
+        s.launchPkg = pkg;
         return "{\"ok\":true,\"package\":\"" + pkg + "\",\"component\":\"" + component
                 + "\",\"displayId\":" + s.displayId + "}";
     }
@@ -696,9 +711,11 @@ public class Main {
             }
 
             // v1.18.0：调用方鉴权（令牌由 App 侧的桥启动本进程时用 --token 传入）
-            if (!tokenOk(headBuf.toString(), path)) {
-                log("拒绝未授权请求: " + path, null);
-                respond(sock, "{\"ok\":false,\"error\":\"鉴权失败：缺少或错误的 X-DSH-Token\"}");
+            // confirm 包：令牌之后再过同一道 Guard（动作 × 本虚拟屏当前 App × 触发通道）。
+            if (!com.deepseek.harness.LocalAuth.ok(sToken, headBuf.toString(), path, "",
+                    currentLaunchPkg(), com.deepseek.harness.guard.Guard.Origin.VSCREEN)) {
+                log("拒绝未授权或未获准的请求: " + path, null);
+                respond(sock, com.deepseek.harness.LocalAuth.denied());
                 return;
             }
 
@@ -760,25 +777,10 @@ public class Main {
 
     // ==================== v1.18.0：鉴权 ====================
 
-    /** 令牌校验：请求头 X-DSH-Token 优先，query token= 兜底；sToken 为空一律拒绝。 */
-    private static boolean tokenOk(String rawHead, String path) {
-        if (sToken == null || sToken.length() < 16) {
-            return false;
-        }
-        String got = "";
-        String[] lines = rawHead.split("\r?\n");
-        for (int i = 0; i < lines.length; i++) {
-            int c = lines[i].indexOf(':');
-            if (c > 0 && lines[i].substring(0, c).trim().equalsIgnoreCase("X-DSH-Token")) {
-                got = lines[i].substring(c + 1).trim();
-                break;
-            }
-        }
-        if (got.isEmpty()) {
-            String q = qStr(path.indexOf('?') >= 0 ? path.substring(path.indexOf('?') + 1) : "", "token");
-            got = q == null ? "" : q;
-        }
-        return sToken.equals(got);
+    /** 这块虚拟屏当前承载的包名（原生侧记录）；没有启动过任何 App 时为空 = 无保护对象。 */
+    private static String currentLaunchPkg() {
+        Session s = currentSession();
+        return s == null ? "" : s.launchPkg;
     }
 
     private static void respond(Socket sock, String body) throws IOException {

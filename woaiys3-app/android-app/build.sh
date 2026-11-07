@@ -28,6 +28,18 @@ esac
 # 签名密钥（自行准备，不入仓库）
 KEY="$P/release.jks"
 
+# ── 权限 flavor 校验（放在所有副作用之前：未知值必须立刻退出，且不动任何产物）──────────
+# 默认 confirm：带确认。plain 只允许源码显式指定 —— Releases 只发 confirm。
+BUILD_FLAVOR="${BUILD_FLAVOR:-confirm}"
+case "$BUILD_FLAVOR" in
+  confirm|plain) ;;
+  *) echo "!! 未知 BUILD_FLAVOR=$BUILD_FLAVOR（只支持 confirm / plain）"; exit 2 ;;
+esac
+echo "== 权限 flavor: $BUILD_FLAVOR =="
+# 先删掉上一次的 APK：构建失败时目录里绝不能留一个"看起来是新的"旧包
+# （验收要求：confirm 包 guard 没参与编译 → 失败且不产出 APK）。
+rm -f "$P/DeepSeekHarness.apk"
+
 echo "== 0/7 组装 payload =="
 # v1.19.0 硬闸门：payload 里的 JSON/YAML 绝不能带 UTF-8 BOM ——
 # node 的 JSON.parse 会因为 BOM 直接抛 SyntaxError，表现为"引擎起不来"（真机实锤过一次）。
@@ -66,6 +78,30 @@ mkdir -p "$P/staging/runtime/bin" "$P/staging/runtime/lib" \
          "$P/staging/runtime/etc" \
          "$P/staging/bin" "$P/staging/dshroot" \
          "$P/staging/dshhome/profiles/web" "$P/assets"
+
+# ── 权限 flavor：生成 BuildInfo + 选 flavor（默认 confirm：带确认）────────────────────
+# 为什么要构建期定死：开关要是模型能拨，需要限制的人会被它拨掉，不需要的人会被它拨回来。
+# flavor 编成 dex 里的常量（BuildInfo.FLAVOR），不是运行时探测 —— 类加载失败有四种原因，
+# 只有「没编进去」该放行；用「找不到就放行」等于把「坏了」当成「没有」。
+GUARD_SRC="$P/src/com/deepseek/harness/guard"
+FLAVOR_SRC="$P/src/com/deepseek/harness/flavor"
+[ -d "$GUARD_SRC" ] || { echo "!! 缺 guard 目录：$GUARD_SRC"; exit 1; }
+for f in Guard.java Decision.java GuardImpl.java Channel.java Consent.java; do
+  [ -f "$GUARD_SRC/$f" ] || { echo "!! 缺 guard/$f"; exit 1; }
+done
+[ -f "$FLAVOR_SRC/BuildInfo.$BUILD_FLAVOR.java" ] || { echo "!! 缺 flavor/BuildInfo.$BUILD_FLAVOR.java"; exit 1; }
+mkdir -p "$P/out/gen/com/deepseek/harness"
+cp "$FLAVOR_SRC/BuildInfo.$BUILD_FLAVOR.java" "$P/out/gen/com/deepseek/harness/BuildInfo.java"
+# 构建期断言：生成物里的常量必须就是本次 flavor（防止拷错/模板写错静默编成另一个包）
+grep -q "FLAVOR = \"$BUILD_FLAVOR\"" "$P/out/gen/com/deepseek/harness/BuildInfo.java" \
+  || { echo "!! BuildInfo 生成物与 BUILD_FLAVOR=$BUILD_FLAVOR 不符，中止"; exit 1; }
+# confirm 包里 guard 规则必须是真规则，不能是空壳（空壳会让 confirm 静默等于 plain）
+if [ "$BUILD_FLAVOR" = "confirm" ]; then
+  [ -f "$GUARD_SRC/GuardImpl.java" ] || { echo "!! confirm 包缺 guard/GuardImpl.java，中止"; exit 1; }
+  grep -q "return Decision.deny" "$GUARD_SRC/GuardImpl.java" \
+    || { echo "!! confirm 包的 guard/GuardImpl.java 没有拒绝分支（疑似空壳），中止"; exit 1; }
+fi
+echo "  权限 flavor: $BUILD_FLAVOR（BuildInfo 已生成到 out/gen）"
 
 # Termux 共存修复（v1.7.4）：内置 node 在 Termux 环境编译，OPENSSLDIR 编译死为
 # /data/data/com.termux/files/usr。装了 Termux 的设备读其 openssl.cnf 触发 EACCES，
@@ -149,6 +185,26 @@ mkdir -p "$P/staging/dshroot/lib"
 # ⚠ 不要在这里改用 robocopy：它遇到这棵病态目录会不返回（实测挂住）或报错 16。
 ( cd "$H/dshroot/lib" && tar cf - --exclude='./node_modules/@deepseek-ai/dsh/node_modules/.bin' --exclude='./node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh' . ) \
   | ( cd "$P/staging/dshroot/lib" && tar xf - )
+
+# 跟踪进仓的插件副本覆盖 devhome 里的旧拷贝：
+# devhome/ 是 gitignored 的二进制挖取产物，里面的插件可能落后于 woaiys3-app/plugins/。
+# 权限相关的客户端超时（等原生确认框）就改在插件里 —— 不覆盖的话真机跑的还是旧的 8s 超时。
+PLUGINS_SRC="$P/../plugins"
+DH_MODULES="$P/staging/dshroot/lib/node_modules/@deepseek-ai/dsh/node_modules"
+if [ -d "$PLUGINS_SRC" ] && [ -d "$DH_MODULES" ]; then
+  for _plug in "$PLUGINS_SRC"/*/; do
+    _name="$(basename "$_plug")"
+    if [ -d "$DH_MODULES/$_name" ]; then
+      # 只同步运行所需的两项：package.json 与 lib/（目录里可能有人手放的历史副本，别一起搬）
+      [ -f "$_plug/package.json" ] && cp "$_plug/package.json" "$DH_MODULES/$_name/package.json"
+      if [ -d "$_plug/lib" ]; then
+        mkdir -p "$DH_MODULES/$_name/lib"
+        cp -r "$_plug/lib"/* "$DH_MODULES/$_name/lib/"
+      fi
+      echo "  插件同步: $_name（以 woaiys3-app/plugins/ 为准）"
+    fi
+  done
+fi
 
 # dshroot 版本标记：App 用它判断「外部 /sdcard/DeepSeekHarness/dshroot」是否需要补齐。
 # 外部已有的文件永不覆盖（保留 AI 运行时修改），缺失文件才从 APK 补上。
@@ -418,7 +474,14 @@ echo "== vscreen jar =="
 VSC_SRC="$P/src/com/deepseek/harness/vscreen"
 mkdir -p "$P/out/vsc-classes" "$P/out/vsc-dex"
 if ls "$VSC_SRC"/*.java >/dev/null 2>&1; then
-  if "$JAVA/javac" -encoding UTF-8 -source 1.8 -target 1.8 -bootclasspath "$AJ" -d "$P/out/vsc-classes" "$VSC_SRC"/*.java >"$P/out/vsc-javac.log" 2>&1; then
+  # 虚拟屏核心是独立 shell 进程（app_process + 这个 jar），它也要过同一道 Guard：
+  # 所以把 guard/、LocalAuth、Grant、BuildInfo 一起编进 jar（不是复制一份规则）。
+  if "$JAVA/javac" -encoding UTF-8 -source 1.8 -target 1.8 -bootclasspath "$AJ" -d "$P/out/vsc-classes" \
+      "$VSC_SRC"/*.java \
+      "$GUARD_SRC"/*.java \
+      "$P/src/com/deepseek/harness/LocalAuth.java" \
+      "$P/src/com/deepseek/harness/Grant.java" \
+      "$P/out/gen/com/deepseek/harness/BuildInfo.java" >"$P/out/vsc-javac.log" 2>&1; then
     ( cd "$P/out/vsc-classes" && "$D8" --release --lib "$AJ" --min-api 24 --output "$P/out/vsc-dex" $(find . -name '*.class' | sed 's|^\./||') ) 2>/tmp/vsc-d8.log || ( echo "  d8 retry"; cd "$P/out/vsc-classes" && find . -name '*.class' > "$P/out/vsc.rsp" && "$D8" --release --lib "$AJ" --min-api 24 --output "$P/out/vsc-dex" @"$P/out/vsc.rsp" 2>/tmp/vsc-d8b.log )
     if [ -f "$P/out/vsc-dex/classes.dex" ]; then
       # 用 jar 把 classes.dex 打成 jar（app_process 认含 dex 的 jar）
@@ -441,6 +504,14 @@ fi
 # v1.18.0 硬闸门：jar 与它的 SHA-256 必须同时存在，否则装机后虚拟屏会被拒绝启动
 [ -f "$P/assets/vscreen_shizuku.jar" ] || { echo "!! assets/vscreen_shizuku.jar 缺失，中止构建"; exit 1; }
 [ -f "$P/assets/vscreen_jar_sha256.txt" ] || { echo "!! assets/vscreen_jar_sha256.txt 缺失，中止构建"; exit 1; }
+# confirm 包：虚拟屏 jar 里必须真的带着 Guard（否则核心侧那道判定等于不存在）
+# jar 里只有 classes.dex（没有 .class 条目）；dex 的类描述符是明文，直接查它。
+if [ "$BUILD_FLAVOR" = "confirm" ]; then
+  for _cls in "Lcom/deepseek/harness/guard/GuardImpl;" "Lcom/deepseek/harness/guard/Guard;" "Lcom/deepseek/harness/BuildInfo;"; do
+    grep -aq "$_cls" "$P/out/vsc-dex/classes.dex" \
+      || { echo "!! confirm 包的虚拟屏 dex 缺 $_cls，中止"; exit 1; }
+  done
+fi
 
 # 移动端适配资源：随 APK 打包，MainActivity 注入 WebView（不依赖服务器 dist）
 cp "$P/../mobile-patch/mobile.css" "$P/assets/mobile.css"
@@ -471,8 +542,7 @@ cp "$H/.dsh/profiles/web/package.json" "$P/staging/dshhome/profiles/web/"
 cp "$H/.dsh/profiles/web/pnpm-workspace.yaml" "$P/staging/dshhome/profiles/web/"
 cp "$H/.dsh/settings.yaml" "$P/staging/dshhome/" 2>/dev/null   || cp "$H/.dsh/settings.yaml.imported" "$P/staging/dshhome/settings.yaml"   || { echo "!! 找不到 .dsh/settings.yaml（也没有 settings.yaml.imported），中止"; exit 1; }
 
-# 第三方 dsh 插件：装到 $DSH_HOME/node_modules/。
-# dsh 解析插件裸包名（如 dsh-memory）时基准目录是 $DSH_HOME/profiles/web/，
+# 第三方 dsh 插件：装到 $DSH_HOME/node_modules/。# dsh 解析插件裸包名（如 dsh-memory）时基准目录是 $DSH_HOME/profiles/web/，
 # Node 逐级向上查找 node_modules 会命中 dshhome/node_modules —— 不能塞进 dshroot（那是内核自己的树）。
 # 源 = 仓库内被跟踪的 memory/（dsh-memory 的一份副本，绝不放 gitignored 的 devhome）。
 MEMORY_PLUGIN_SRC="$P/../../memory"
@@ -599,7 +669,10 @@ if ! "$JAVA/javac" -encoding UTF-8 -source 1.8 -target 1.8 -bootclasspath "$AJ" 
   "$P/src/com/deepseek/harness/DshVoiceInteractionService.java" \
   "$P/src/com/deepseek/harness/DshVoiceInteractionSessionService.java" \
   "$P/src/com/deepseek/harness/DshRecognitionService.java" \
+  "$P/src/com/deepseek/harness/Grant.java" \
+  "$GUARD_SRC"/*.java \
   "$VSC_SRC"/*.java \
+  "$P/out/gen/com/deepseek/harness/BuildInfo.java" \
   "$P/out/gen/com/deepseek/harness/R.java" \
   >"$P/out/javac.log" 2>&1; then
   echo "!! javac 编译失败，日志：$P/out/javac.log"
@@ -610,6 +683,19 @@ grep -v "bootstrap class path\|warning:\|RestrictTo\|Note:\|deprecat" "$P/out/ja
 NCLASS="$(find "$P/out/classes" -name '*.class' | wc -l)"
 echo "  javac 完成，class 数：$NCLASS"
 [ "$NCLASS" -gt 0 ] || { echo "!! javac 产物为空，中止构建"; exit 1; }
+# 构建期断言（不变量 ③）：guard 真的参与了编译 —— 不是靠"文件在磁盘上"假设。
+for c in guard/Guard guard/GuardImpl guard/Decision guard/Channel guard/Consent BuildInfo; do
+  [ -f "$P/out/classes/com/deepseek/harness/$c.class" ] \
+    || { echo "!! 缺 class：com/deepseek/harness/$c（guard 没参与编译？）中止"; exit 1; }
+done
+if [ "$BUILD_FLAVOR" = "confirm" ]; then
+  # confirm 的判据必须是编进 dex 的常量 "confirm"（不是运行时探测）
+  grep -q '"confirm"' "$P/out/gen/com/deepseek/harness/BuildInfo.java" \
+    || { echo "!! confirm 包 BuildInfo 里没有 \"confirm\" 常量，中止"; exit 1; }
+fi
+# 字节码级断言：编译产物里的常量池确实带着本次 flavor 的字符串
+grep -aq "$BUILD_FLAVOR" "$P/out/classes/com/deepseek/harness/BuildInfo.class" \
+  || { echo "!! BuildInfo.class 的常量池里没有 \"$BUILD_FLAVOR\"，中止"; exit 1; }
 
 echo "== 3/7 d8 -> dex =="
 # class 列表写入 response file（Windows 命令行 8191 字符限制，98+ 个绝对路径会超长）

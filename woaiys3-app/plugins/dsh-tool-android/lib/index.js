@@ -632,7 +632,8 @@ function apply(ctx) {
                   ((wrote && wrote.error) || "未知错误")
               };
             }
-            const pasted = await privCmd("input keyevent 279", 15000); // 279 = KEYCODE_PASTE
+            // 通讯类 App 里粘贴会弹原生确认框：超时要大于 Guard.ASK_TIMEOUT_MS（20s）
+            const pasted = await privCmd("input keyevent 279", 30000); // 279 = KEYCODE_PASTE
             if (!pasted.ok) return pasted;
             return {
               ok: true, exit_code: 0, stderr: "",

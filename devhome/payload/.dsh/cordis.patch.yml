@@ -77,6 +77,9 @@
     # v1.19.0：AI 浏览器（结构化 DOM 快照 + 稳定 ref，不是截图 OCR）
     - id: tool-browser
       name: '@deepseek-ai/dsh-tool-browser'
+    # v0.1.0：无头上网阅读（Via 式引擎阶梯：探测内核 → native → 原始 HTTP → 明确报错）
+    - id: tool-webread
+      name: '@deepseek-ai/dsh-tool-webread'
     # v1.20.0：语音工具（B 路线）——TTS 播报 / 听写 / 录音 / 唤醒词 / 语音事件流；
     # 平台能力由 App 侧 VoiceService（本地 3280 桥）提供，插件只做编排与结果渲染。
     - id: tool-voice

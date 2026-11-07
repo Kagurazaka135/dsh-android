@@ -527,7 +527,8 @@ function apply(ctx) {
               catch (e) { resolve({ ok: false, error: "响应解析失败" }); }
             });
           });
-          req.setTimeout(5000, () => { req.destroy(); resolve({ ok: false, error: "本地服务超时" }); });
+          // 改「影响体验」的设置会弹原生确认框：超时必须大于 Guard.ASK_TIMEOUT_MS（20s）
+          req.setTimeout(30000, () => { req.destroy(); resolve({ ok: false, error: "本地服务超时" }); });
           req.on("error", (e) => resolve({ ok: false, error: String(e && e.message || e) }));
           req.write(body);
           req.end();
@@ -593,7 +594,8 @@ function apply(ctx) {
               catch (e) { resolve({ ok: false, error: "响应解析失败" }); }
             });
           });
-          req.setTimeout(5000, () => { req.destroy(); resolve({ ok: false, error: "本地服务超时" }); });
+          // 读剪贴板会弹原生确认框（内容敏感）：超时必须大于 Guard.ASK_TIMEOUT_MS（20s）
+          req.setTimeout(30000, () => { req.destroy(); resolve({ ok: false, error: "本地服务超时" }); });
           req.on("error", (e) => resolve({ ok: false, error: String(e && e.message || e) }));
           req.write(body);
           req.end();

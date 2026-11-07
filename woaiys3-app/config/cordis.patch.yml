@@ -77,3 +77,6 @@
     # v1.19.0：AI 浏览器（结构化 DOM 快照 + 稳定 ref，不是截图 OCR）
     - id: tool-browser
       name: '@deepseek-ai/dsh-tool-browser'
+    # v0.1.0：无头上网阅读（Via 式引擎阶梯：探测内核 → native → 原始 HTTP → 明确报错）
+    - id: tool-webread
+      name: '@deepseek-ai/dsh-tool-webread'

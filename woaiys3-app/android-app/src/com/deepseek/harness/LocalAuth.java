@@ -85,8 +85,9 @@ public final class LocalAuth {
         return "";
     }
 
-    /** 令牌校验：请求头优先，query 兜底；expected 为空一律拒绝（fail-closed）。 */
-    public static boolean ok(String expected, String rawHead, String path) {
+    /** 只验身份（令牌）：请求头优先，query 兜底；expected 为空一律拒绝（fail-closed）。
+     *  给 /voice-state 这类只读控制面用——它不改变状态，Node 读到也改不了语音会话。 */
+    public static boolean okIdentity(String expected, String rawHead, String path) {
         if (expected == null || expected.length() < 16) {
             return false;
         }
@@ -97,8 +98,64 @@ public final class LocalAuth {
         return expected.equals(t);
     }
 
+    /**
+     * flavor 判定的安全包装：读不到常量时**按 confirm 处理**（fail-closed）。
+     * 不能反过来 —— "读不到就当 plain"等于把「坏了」当成「没有」，正是本设计要避免的退化。
+     */
+    private static boolean guardedSafe() {
+        try {
+            return BuildInfo.guarded();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** 身份之后的**授权**判定。plain 到此为止（行为与今天完全一致）；
+     *  confirm 再走原生 Guard（BuildInfo 是编进 dex 的常量，不是运行时探测）。 */
+    public static boolean authorize(String expected, String rawHead, String path, String body,
+                                    String foreground, com.deepseek.harness.guard.Guard.Origin origin) {
+        if (!guardedSafe()) return true;
+        return Grant.verify(rawHead, path, body, foreground, origin);
+    }
+
+    /** 3 参版（1.5 定下的接口）：不带 body / 前台包名；app 敏感动作会 fail-closed。 */
+    public static boolean ok(String expected, String rawHead, String path) {
+        if (!okIdentity(expected, rawHead, path)) return false;
+        if (!guardedSafe()) return true;
+        return Grant.verify(rawHead, path);
+    }
+
+    /** 本地服务统一入口：身份 → flavor 分叉 → 授权。 */
+    public static boolean ok(String expected, String rawHead, String path, String body,
+                             String foreground, com.deepseek.harness.guard.Guard.Origin origin) {
+        if (!okIdentity(expected, rawHead, path)) return false;
+        return authorize(expected, rawHead, path, body, foreground, origin);
+    }
+
     /** 统一拒绝响应体（协议不变：HTTP 200 + body 里 ok=false）。 */
     public static String denied() {
+        String why = Grant.lastReason();
+        if (why != null && !why.isEmpty()) {
+            Grant.clearReason();
+            return "{\"ok\":false,\"error\":\"操作被权限策略拒绝：" + jesc(why) + "\"}";
+        }
         return "{\"ok\":false,\"error\":\"本地服务鉴权失败：缺少或错误的 X-DSH-Token（该接口仅限本应用引擎调用）\"}";
+    }
+
+    private static String jesc(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default: sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 }

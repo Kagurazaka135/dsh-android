@@ -40,6 +40,8 @@ import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig;
 import com.k2fsa.sherpa.onnx.WaveData;
 import com.k2fsa.sherpa.onnx.WaveReader;
 
+import com.deepseek.harness.guard.Guard;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -93,6 +95,17 @@ public class VoiceService extends Service {
     private static final int DEFAULT_RECORD_MS = 30000;
     private static final int WAKE_SAMPLE_RATE = 16000;
     private static final int WAKE_FRAME_SAMPLES = 1600; // 100 ms mono PCM16
+
+    /**
+     * 语音会话窗口（原生侧的通道标签，Node 无法写）。
+     *
+     * wake.hit 时开窗、wake.timeout 时立即关；wake.command 识别出内容后再续一次。
+     * 窗口内所有「对手机动手」的动作一律拒绝（只聊天）。窗口越长越安全但误伤越大：
+     * 用户喊完一句后切回文字操作，窗口没到期前写动作会被拒。
+     */
+    private static final long VOICE_SESSION_TTL_MS = 120000L;
+    private volatile long voiceSessionUntil = 0L;
+    private volatile String voiceSessionId = "";
 
     private ServerSocket serverSocket;
     private volatile boolean serverRunning = false;
@@ -175,6 +188,7 @@ public class VoiceService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        Guard.install(this);
         wakeEnabledByUser = readWakeEnabled();
         createChannel();
         startForeground(NOTIF_ID, buildNotification("语音服务就绪", "离线语音模型准备中"));
@@ -200,6 +214,7 @@ public class VoiceService extends Service {
     @Override
     public void onDestroy() {
         mainHandler.removeCallbacks(wakeRestoreTask);
+        voiceSessionUntil = 0L;
         serverRunning = false;
         try { if (serverSocket != null) serverSocket.close(); } catch (Throwable ignored) {}
         stopWakeMonitor();
@@ -877,6 +892,7 @@ public class VoiceService extends Service {
                 wakeEnabledByUser = false;
                 resumeWakeAfterRecord = false;
                 wakeRestoreAttempts = 0;
+                voiceSessionUntil = 0L;
                 mainHandler.removeCallbacks(wakeRestoreTask);
                 persistWakeEnabled(false);
                 stopWakeMonitor();
@@ -1042,9 +1058,13 @@ public class VoiceService extends Service {
                         quietFrames = 0;
                         speech.clear();
                         armedAt = System.currentTimeMillis();
+                        // 原生侧开语音会话：标识只存在本进程；主进程的 Guard 通过 /voice-state 读。
+                        voiceSessionUntil = System.currentTimeMillis() + VOICE_SESSION_TTL_MS;
+                        voiceSessionId = newVoiceSessionId();
                         JSONObject data = new JSONObject();
                         data.put("keyword", keyword);
                         data.put("wakeWord", "小鲸鱼");
+                        data.put("session", voiceSessionId);
                         pushEvent("wake.hit", data);
                         notifyWake("唤醒词已识别", "小鲸鱼正在听");
                         detected = true;
@@ -1057,6 +1077,8 @@ public class VoiceService extends Service {
                 if (commandArmed && !inSpeech && System.currentTimeMillis() - armedAt > 10000L) {
                     commandArmed = false;
                     speech.clear();
+                    // 醒了但没说出指令：立即关窗，别让一次误唤醒把窗口挂满两分钟。
+                    voiceSessionUntil = 0L;
                     pushEvent("wake.timeout", null);
                 }
                 if (!commandArmed) continue;
@@ -1082,6 +1104,7 @@ public class VoiceService extends Service {
             }
         } catch (Throwable t) {
             Log.w(TAG, "wake monitor failed", t);
+            voiceSessionUntil = 0L;
             try { JSONObject d = new JSONObject(); d.put("error", safeMessage(t)); pushEvent("wake.error", d); } catch (Throwable ignored) {}
             notifyWake("唤醒监听停止", safeMessage(t));
         } finally {
@@ -1103,9 +1126,12 @@ public class VoiceService extends Service {
             @Override public void run() {
                 try {
                     String text = transcribeSamples(samples, WAKE_SAMPLE_RATE);
+                    // 指令已识别：从这一刻起算，给模型留出处理 + 调工具的时间。
+                    voiceSessionUntil = System.currentTimeMillis() + VOICE_SESSION_TTL_MS;
                     JSONObject data = new JSONObject();
                     data.put("text", text == null ? "" : text.trim());
                     data.put("wakeWord", "小鲸鱼");
+                    data.put("session", voiceSessionId);
                     pushEvent("wake.command", data);
                     notifyWake("唤醒语音已识别", text == null || text.trim().isEmpty() ? "未识别到内容" : text.trim());
                 } catch (Throwable t) {
@@ -1309,7 +1335,8 @@ public class VoiceService extends Service {
                     }
 
                     String respBody;
-                    if (!LocalAuth.ok(LocalAuth.token(VoiceService.this), headStr, path)) {
+                    if (!LocalAuth.ok(LocalAuth.token(VoiceService.this), headStr, path,
+                            body, "", Guard.Origin.VOICE_SERVICE)) {
                         Log.w(TAG, "voice 请求被拒（令牌缺失或错误）：" + path);
                         respBody = LocalAuth.denied();
                     } else {
@@ -1357,7 +1384,43 @@ public class VoiceService extends Service {
         if (base.equals("/recognize")) return handleRecognize(body, path);
         if (base.equals("/wake")) return handleWake(body);
         if (base.equals("/event")) return handleEvent(path);
+        if (base.equals("/voice-state")) return handleVoiceState(path);
         return jsonError("未知路由: " + base);
+    }
+
+    /**
+     * 语音会话状态（只读控制面）：主进程 Guard 用它判定"这次请求是不是语音触发的"。
+     *
+     * 只回状态、不接受写入 —— 没有任何参数能延长/伪造会话；标签只在原生侧
+     * wake.hit / wake.command / wake.timeout 三处被改。Node 能读它，但读不出权限。
+     */
+    private String handleVoiceState(String path) {
+        try {
+            long now = System.currentTimeMillis();
+            long until = voiceSessionUntil;
+            boolean active = until > now;
+            JSONObject o = new JSONObject();
+            o.put("ok", true);
+            o.put("active", active);
+            o.put("until", active ? until : 0L);
+            o.put("session", active ? voiceSessionId : "");
+            o.put("ttlMs", VOICE_SESSION_TTL_MS);
+            return o.toString();
+        } catch (Throwable t) {
+            return jsonError("voice-state error: " + t.getMessage());
+        }
+    }
+
+    private static String newVoiceSessionId() {
+        try {
+            byte[] b = new byte[12];
+            new java.security.SecureRandom().nextBytes(b);
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < b.length; i++) sb.append(String.format("%02x", b[i]));
+            return sb.toString();
+        } catch (Throwable t) {
+            return Long.toHexString(System.nanoTime());
+        }
     }
 
     // ======================= 通知 =======================

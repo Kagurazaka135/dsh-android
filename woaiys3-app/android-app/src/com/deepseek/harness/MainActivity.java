@@ -283,6 +283,8 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         enginePort = defaultEnginePort(this); // 三版本各自独立端口（见 defaultEnginePort）
         EngineCore.setEnginePort(this, enginePort);
+        // 权限门面：装 App 上下文（语音通道探测 / 原生确认框）。
+        com.deepseek.harness.guard.Guard.install(this);
         // v1.17.4：控制台主题包配置（/sdcard/<包名目录>/console/console.json）。
         // 放在 applyStatusBar() 之前 —— statusBar 颜色要参与状态栏/导航栏取色；坏配置在 load() 里自动回退。
         conThemeReloadIfChanged(true);
@@ -2585,10 +2587,14 @@ public class MainActivity extends Activity {
                     // 3) 分发处理
                     // v1.18.0：本地服务统一鉴权。loopback 不是访问控制（任意应用都能连 127.0.0.1），
                     // 令牌与 /shell 同源（dsh_prefs 的 local_token，随 env 交给引擎里的插件）。
+                    // confirm 包：令牌之后再过原生 Guard（动作 × 系统读到的前台包名 × 触发通道）。
                     String mine = localToken();
-                    boolean authed = LocalAuth.ok(mine, h, path)
+                    boolean identity = LocalAuth.okIdentity(mine, h, path)
                             || (path.startsWith("/shell") && mine.length() >= 16
                                 && mine.equals(jsonField(body.toString(), "token")));
+                    boolean authed = identity && LocalAuth.authorize(mine, h, path, body.toString(),
+                            AccessibilityService.isRunning ? AccessibilityService.foregroundPackage() : "",
+                            com.deepseek.harness.guard.Guard.Origin.APP);
                     String respBody;
                     if (!authed) {
                         Log.w(TAG, "本地服务请求被拒（令牌缺失或错误）：" + path);
@@ -2680,6 +2686,8 @@ public class MainActivity extends Activity {
         sb.append(",\"overlayEngineUp\":").append(OverlayService.engineUp);
         sb.append(",\"usageGranted\":").append(UsageStatsHelper.permissionGranted(this));
         sb.append(",\"overlayGranted\":").append(Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this));
+        sb.append(",\"flavor\":\"").append(BuildInfo.FLAVOR).append('"');
+        sb.append(",\"guarded\":").append(BuildInfo.guarded());
         sb.append('}');
         return sb.toString();
     }
@@ -2984,6 +2992,8 @@ public class MainActivity extends Activity {
                 if (content.isEmpty()) return "{\"ok\":false,\"error\":\"缺少 content 参数\"}";
                 android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("dsh", content));
+                // 原生留痕：通讯类 App 里粘贴前要能把「即将输入的原文」摆到确认框上。
+                com.deepseek.harness.guard.Guard.noteClipboardWrite(content);
                 return "{\"ok\":true}";
             }
             // read
@@ -4092,7 +4102,18 @@ public class MainActivity extends Activity {
         String v = "";
         try { v = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Throwable ignored) {}
         String k = conKernelVer();
-        return v + (k != null ? " · 内核 " + k : "");
+        // 权限 flavor 只读显示（BuildInfo.FLAVOR 编进 dex，界面上没有切换控件）。
+        return v + (k != null ? " · 内核 " + k : "") + " · " + flavorLabel();
+    }
+
+    /** 当前构建的权限 flavor（只读，来自编进 dex 的常量）。 */
+    private String flavorLabel() {
+        try {
+            return BuildInfo.guarded() ? "带确认" : "全放行";
+        } catch (Throwable t) {
+            // 读不到常量说明这个包本身有问题；不要显示成"全放行"。
+            return "未知";
+        }
     }
 
     /**

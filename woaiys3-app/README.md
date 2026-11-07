@@ -60,6 +60,7 @@
 | `dsh-tool-accessibility` | 无障碍读屏 + 模拟操作（v1.7.0）：读控件树 / 点击 / 输入 / 返回主页 / 滚动 / 无障碍截图理解 |
 | `dsh-tool-vscreen` | **虚拟屏（v1.10+）**：建屏 / 把 App 启动到虚拟屏 / 看虚拟屏画面 / 在虚拟屏上点击·滑动·按键 / 关屏（8 个工具） |
 | `dsh-tool-browser` | **AI 浏览器（v1.19+）**：结构化 DOM 快照 + 稳定 ref + 真差分 + 检索式定位 + 动作后置校验；v1.19.6 起**跑在独立进程 `:browser`**、支持**多页签**（10 个工具：caps/open/snapshot/find/click/type/read/nav/scroll/tabs），可在控制台「插件」页**随时开关** |
+| `dsh-tool-webread` | **无头上网阅读（v0.1.0）**：`web_probe` 探测系统 WebView 内核版本、`web_read` 按引擎阶梯取正文——native（WebView 渲染）→ 原始 HTTP（不执行 JS）→ 明确报错；纯插件实现，不改原生层、不留页签 |
 
 > 通过这五个插件，AI 不再只是"聊聊天"，而是能**真正控制你的手机**——特权通道（root/Shizuku）负责系统级操作，无障碍通道（无需授权）负责读屏与交互，虚拟屏通道让 AI 在**不打扰主屏**的前提下跑自动化任务，AI 浏览器通道让它**真的能打开网页、点进去、读完正文**。
 
@@ -230,6 +231,8 @@ docs/开发指南.md            项目开发指南（架构/常用命令/注意�
 - `targetSdk` 必须保持 **28**（≥29 会导致 node 二进制 EACCES 起不来）
 - 需准备 `runtime/`（node v26 + 依赖库）和 `dshroot/`（DSH 内核）才能打完整 APK
 - `build.sh` 会自动注入 mobile.css/mobile.js，并做 API Key 安全检查
+- **权限 flavor**：`bash build.sh` 产出 `confirm`（带确认，默认）；`BUILD_FLAVOR=plain bash build.sh`
+  产出全放行版。flavor 在构建期编成 `BuildInfo.FLAVOR` 常量，装好后不可切换。详见根目录 README。
 
 > ⚠️ 这是源码与配置仓库，**不含 APK 二进制、签名密钥（release.jks）、node 运行时、payload.zip、凭证文件**。
 > 📦 安装包（DeepSeekHarness.apk）、node 运行时与 DSH 内核分块包见 [Releases](https://github.com/woaiys3/deepseek-harness-android-app/releases)；构建源码前需准备 runtime/ 与 dshroot/（分块包合并方法见 Release 说明）。

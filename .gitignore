@@ -14,6 +14,10 @@ woaiys3-app/android-app/assets/
 *.zip
 *.log
 *.exe
+*.tgz
+
+# 真机证据（截图里有微信/支付宝等真实界面，公开库不放）
+_apk/
 
 # 密钥 / 口令（绝不进库）
 SIGNING.md
@@ -48,4 +52,5 @@ memory/摸清报告.md
 
 # 工人交接单 / 给下一上下文的方案（点名 AI 工人 → 不公开）
 验收-*.md
+任务书-*.md
 测试方案.md

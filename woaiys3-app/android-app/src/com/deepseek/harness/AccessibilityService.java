@@ -17,6 +17,8 @@ import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 
+import com.deepseek.harness.guard.Guard;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -58,6 +60,35 @@ public class AccessibilityService extends android.accessibilityservice.Accessibi
     public static volatile boolean isRunning = false;
     /** 当前活跃窗口的包名。 */
     public static volatile String activePackage = "";
+    private static volatile AccessibilityService sInstance;
+
+    /**
+     * 系统读到的前台包名（权限判定的唯一依据，绝不接受模型自述）。
+     *
+     * 优先问当前活动窗口（此刻最准），读不到再退回最近一次无障碍事件里的包名。
+     * 两者都读不到时返回空串 —— 调用方据此 fail-closed。
+     */
+    public static String foregroundPackage() {
+        AccessibilityService svc = sInstance;
+        if (svc != null) {
+            AccessibilityNodeInfo root = null;
+            try {
+                root = svc.getRootInActiveWindow();
+                if (root != null) {
+                    CharSequence pkg = root.getPackageName();
+                    if (pkg != null && pkg.length() > 0) {
+                        String p = pkg.toString();
+                        activePackage = p;
+                        return p;
+                    }
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                try { if (root != null) root.recycle(); } catch (Throwable ignored) {}
+            }
+        }
+        return activePackage == null ? "" : activePackage;
+    }
 
     private static final int MAX_NODES = 250;
     private static final int MAX_DEPTH = 40;
@@ -97,6 +128,9 @@ public class AccessibilityService extends android.accessibilityservice.Accessibi
     @Override
     public void onServiceConnected() {
         isRunning = true;
+        sInstance = this;
+        // 权限门面要拿到 App 上下文（语音通道探测 / 原生确认框都靠它）。
+        Guard.install(this);
         Log.i(TAG, "accessibility service connected");
         // 端口必须由包名决定，不能信 dsh_prefs 里的 a11y_port：该 pref 跨版本持久化，升级后旧包
         // 写下的 3181 仍会被读到 → 正式版与 Lite 的无障碍服务都往 3181 绑，后连的那个 bind 失败
@@ -132,6 +166,7 @@ public class AccessibilityService extends android.accessibilityservice.Accessibi
     @Override
     public boolean onUnbind(android.content.Intent intent) {
         isRunning = false;
+        sInstance = null;
         releaseAllFingers();
         stopServer();
         return super.onUnbind(intent);
@@ -250,7 +285,9 @@ public class AccessibilityService extends android.accessibilityservice.Accessibi
                     String respBody;
                     // v1.18.0：本地服务统一鉴权。127.0.0.1 对设备上所有应用开放，不是访问控制；
                     // 这块能力（读屏 / 截屏 / 注入手势 / 写剪贴板）本应由用户在系统设置里显式授予。
-                    if (!LocalAuth.ok(LocalAuth.token(AccessibilityService.this), headStr, path)) {
+                    // confirm 包：令牌之后再过原生 Guard（动作 × 系统读到的前台包名 × 触发通道）。
+                    if (!LocalAuth.ok(LocalAuth.token(AccessibilityService.this), headStr, path,
+                            body, AccessibilityService.foregroundPackage(), Guard.Origin.APP)) {
                         Log.w(TAG, "a11y 请求被拒（令牌缺失或错误）：" + path);
                         respBody = LocalAuth.denied();
                     } else {
