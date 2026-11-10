@@ -216,4 +216,8 @@ BUILD_FLAVOR=plain bash build.sh       # 约 15–20 分钟
 
 ## 许可
 
-MIT（与上游底座一致）。
+本仓库**自有内容**（文档、脚本、提示词、记忆、对底座的修改）采用 **MIT**，见 [LICENSE](LICENSE)。**许可证范围与第三方组件**的完整说明见 [NOTICE.md](NOTICE.md)。
+
+内置安卓工程来自 [woaiys3/deepseek-harness-android-app](https://github.com/woaiys3/deepseek-harness-android-app)（MIT），但其中**虚拟屏模块源自 Operit（LGPL-3.0）**，Shizuku、sherpa-onnx、Apache Commons、Kotlin 等随包库为 **Apache-2.0**——同一仓库里存在多种许可，**请分别遵守**，完整清单见 [woaiys3-app/THIRD_PARTY_NOTICES.md](woaiys3-app/THIRD_PARTY_NOTICES.md) 与 [woaiys3-app/android-app/libs/README.md](woaiys3-app/android-app/libs/README.md)。
+
+离线语音模型（SenseVoice / KWS）**不随包分发**，由 App 首次使用时从上游下载并按 SHA-256 校验，许可归上游模型仓库所有。
