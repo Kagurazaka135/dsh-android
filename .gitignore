@@ -28,6 +28,10 @@ build.local.sh
 
 # 依赖
 node_modules/
+# 例外：dsh-patches/overlay 是 Android 适配补丁的唯一副本（apply.sh 从这里 tar 出去），
+# 不进库整个仓库就重建不出可用的 payload。上游 @deepseek-ai/* 均为 MIT 且自带 LICENSE。
+!woaiys3-app/dsh-patches/overlay/
+!woaiys3-app/dsh-patches/overlay/**
 
 # 上游 fork 的 git 历史（本库自带一份）
 woaiys3-app/.git/

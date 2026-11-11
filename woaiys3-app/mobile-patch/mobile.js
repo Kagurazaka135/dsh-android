@@ -101,26 +101,49 @@
     // 旋转后等布局稳定再算一次
     setTimeout(schedule, 200);
   });
-  // 记录用户最后一次真实点击（pointerdown）位置，用于区分
-  // 「用户主动点击输入框」与「程序化聚焦」（如切换新话题后输入框自动 focus）
+  // 记录用户最后一次真实点击（pointerdown）的落点元素 + 时间，用于区分
+  // 「用户主动点击输入框」与「程序化聚焦」（如切换新话题后输入框自动 focus）。
+  // v0.4：除了坐标，还记 composedPath 里第一个输入类元素 —— 坐标判定会随
+  //   滚动/缩放/父级 transform 漂移（#root 一旦有 transform，fixed 后代的
+  //   rect 与 clientX/Y 就不在同一坐标系），曾经导致「点搜索框却被判成程序化聚焦 → 立刻 blur」。
   var lastPointer = null;
   document.addEventListener('pointerdown', function (e) {
-    lastPointer = { x: e.clientX, y: e.clientY, t: Date.now() };
+    var path = (e.composedPath && e.composedPath()) || [];
+    var inputEl = null;
+    for (var i = 0; i < path.length; i++) {
+      if (isInputLike(path[i])) { inputEl = path[i]; break; }
+    }
+    lastPointer = { x: e.clientX, y: e.clientY, t: Date.now(), el: inputEl };
   }, true);
 
   function isInputLike(t) {
     return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
   }
 
+  /** 聊天输入栏内的编辑器 —— 唯一需要「防止自动弹键盘」的目标。 */
+  function inComposer(t) {
+    try { return !!(t && t.closest && t.closest('[data-composer-card]')); } catch (e) { return false; }
+  }
+
   document.addEventListener('focusin', function (e) {
     var t = e && e.target;
     if (!isInputLike(t)) return;
-    // 判断这次聚焦是否由用户直接点击该输入框产生
+    // 防自动聚焦的目的只有一条：切换话题/新会话时 composer 被程序化 focus，
+    // 不要自动弹键盘。会话搜索框之类的普通 input 一律不拦 —— 它们的聚焦
+    // 本来就是用户点出来的（点放大镜时焦点落在 input 上，pointerdown 的落点
+    // 却是放大镜按钮，按坐标判定必然误判成「程序化聚焦」并把键盘怼回去）。
+    if (!inComposer(t)) { setTimeout(schedule, 150); return; }
+    // composer：判断这次聚焦是否由用户直接点击编辑器产生
     var userTapped = false;
     if (lastPointer && Date.now() - lastPointer.t < 800) {
-      var r = t.getBoundingClientRect();
-      userTapped = r.left <= lastPointer.x && lastPointer.x <= r.right &&
-                   r.top <= lastPointer.y && lastPointer.y <= r.bottom;
+      if (lastPointer.el === t || (lastPointer.el && (lastPointer.el.contains(t) || t.contains(lastPointer.el)))) {
+        userTapped = true;
+      } else {
+        // 坐标兜底（落点没命中元素时仍按位置判断）
+        var r = t.getBoundingClientRect();
+        userTapped = r.left <= lastPointer.x && lastPointer.x <= r.right &&
+                     r.top <= lastPointer.y && lastPointer.y <= r.bottom;
+      }
     }
     if (!userTapped) {
       // 程序化聚焦（切换话题/新会话自动 focus）：立即失焦，避免键盘自动弹出
@@ -143,6 +166,71 @@
 // conversation.session.header.utilities，单一实例），由核心渲染；
 // 位置用 mobile.css 的 position:fixed 挪到三条杠下方（不动 DOM，
 // 保证 React 事件委托有效）。
+
+/**
+ * 长文本粘贴截断「检测点」v1.0（只取证，不改文本）
+ *
+ * 背景（2026-11-12 真机任务）：主人报告「往聊天输入框粘贴长文本，只剩最后一句/最后一段」。
+ * 真机 + CDP 实测结论（详见 G:\code\dsh-android\报告-2026-11-12-搜索卡死与粘贴截断.md）：
+ *   - 真实粘贴路径（paste 事件 + Lexical 自己的 clipboard 处理）4/4 完整，不截断；
+ *   - 能稳定复现「只剩最后一段」的机制是：**输入法把整段长文本先作为 composing 区，
+ *     随后又把 composing 区重切成更短的一段**（setComposingText 覆盖语义）。
+ *     此时编辑状态只剩最后一段；该行为发生在 WebView/IME 组合层，
+ *     代码路径 dsh-client-ui-conversation 与上游 0.2.0-rc.2 逐字一致（不是我们的补丁）。
+ *   - 这条路径上游 Lexical 无法从外部安全修复（补文本会与输入法组词冲突，
+ *     有把正常纠错写成重复文本的风险），所以这里**只做检测 + 留证**，不动正文。
+ *
+ * 检测规则：一次 composition 会话里见过的最长 composing 文本 ≥ 200 字符，
+ *   且 compositionend 提交的文本是它的**真后缀**、长度明显更短 → 判定为截断。
+ *   正常拼音/手写纠错不会命中（提交结果不是 composing 文本的后缀）。
+ * 留证：console.warn + window.__dshPasteTruncation（数组，最多 5 条）+ 派发
+ *   'dsh:paste-truncated' 自定义事件，方便 adb logcat / CDP 抓现场。
+ */
+(function () {
+  var MAX_KEEP = 5;
+  var LONG = 200;
+  var composingMax = '';
+
+  function report(info) {
+    try {
+      var list = window.__dshPasteTruncation || (window.__dshPasteTruncation = []);
+      list.push(info);
+      if (list.length > MAX_KEEP) list.shift();
+      console.warn('[dsh] 检测到粘贴/输入法提交被截断：', JSON.stringify({
+        composingLen: info.composingLen, committedLen: info.committedLen,
+        lostLen: info.lostLen, head: info.lostHead
+      }));
+      try {
+        document.dispatchEvent(new CustomEvent('dsh:paste-truncated', { detail: info }));
+      } catch (e) {}
+    } catch (e) {}
+  }
+
+  document.addEventListener('compositionstart', function () { composingMax = ''; }, true);
+  document.addEventListener('compositionupdate', function (e) {
+    var d = (e && e.data) || '';
+    if (d.length > composingMax.length) composingMax = d;
+  }, true);
+  document.addEventListener('compositionend', function (e) {
+    var committed = (e && e.data) || '';
+    var max = composingMax;
+    composingMax = '';
+    if (max.length < LONG) return;
+    if (!committed || committed === max) return;
+    if (committed.length * 2 > max.length) return;              // 只是小幅修正，不算截断
+    if (max.lastIndexOf(committed) !== max.length - committed.length) return; // 提交结果必须是后缀
+    var lost = max.slice(0, max.length - committed.length);
+    if (!lost.replace(/\s/g, '')) return;
+    report({
+      at: Date.now(),
+      composingLen: max.length,
+      committedLen: committed.length,
+      lostLen: lost.length,
+      lostHead: lost.slice(0, 40),
+      committedTail: committed.slice(-40)
+    });
+  }, true);
+})();
 
 /**
  * 手机端回车行为 v0.4——**回车换行，Ctrl/Cmd+回车 发送**

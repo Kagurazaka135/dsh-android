@@ -1,3 +1,53 @@
+## v1.21.10（真机缺陷修复 · 2026-11-12）
+
+> **一句话**：修掉「点搜索抽屉就点不动」和「点搜索键盘不弹」两个真机 bug；长文本粘贴截断查清归属（IME 层，非本仓），加了只检测不改正文的留证钩子。
+> versionCode **66**，内核仍 **DSH 0.2.0-rc.2**；同签名覆盖安装，配置/会话/插件都不丢。
+
+### 一、修掉：点搜索后抽屉点不动（A）
+
+**症状**：开抽屉 → 点工作区放大镜展开搜索 → 此后点遮罩 / 点收起按钮都像卡死，抽屉不收起。
+
+**根因（代码 + 运行双证实）**：我们的 layout 补丁把侧栏子节点写成条件表达式（`narrow && !sidebarCollapsed ? <div fixed>{sidebar}</div> : sidebar`）。React 看到子节点类型变了 → **卸载并重挂整棵侧栏子树** → `WorkspaceBrowser` 的 `searchRequest` effect 用一个**只增不减**的计数器重跑 → 调 `expandSidebar()` → `toggleSidebar()` 把刚关上的抽屉又打开。一次点击实际触发 **2 次** toggle，净效果为零。
+
+**修法**：结构改成恒定 —— 窄屏下永远渲染这层包裹 `div`，只切样式（展开 `position:fixed`，收起 `display:contents`）。React 树形状不变 → 不重挂 → effect 不再重放。
+**保留**：内层 div 上 fixed 的既有做法（避免列错位）、收起时布局与旧版一致（`gridTemplateColumns: 0px 411px 0px`，正文全宽）。
+
+**验证**：真机 1.21.10，展开搜索后点遮罩 → 抽屉正常收起；连续开关正常。桌面 Chromium 同一份前端同样序列也能复现旧 bug、修复后不复现。
+
+### 二、修掉：点搜索框键盘不弹（A 的连带缺陷）
+
+**症状**：点放大镜 → 搜索框展开、`focusin` 触发，但 10ms 后焦点变 BODY，键盘不弹。
+
+**根因**：`mobile.js` 的防自动聚焦守卫用**坐标**判断「这次聚焦是不是用户点的」。点放大镜时 `pointerdown` 落在按钮上，随后的 `searchInput.focus()` 是程序化的，坐标判定必然失败 → 被当成「程序化聚焦」立刻 blur。
+
+**修法**：
+- `pointerdown` 同时记录 `composedPath()` 里第一个输入类元素
+- 判定范围收窄到 composer（`[data-composer-card]`）—— 防自动聚焦只为「切话题/新会话不弹键盘」，搜索框本就不该拦
+- 命中判定改为「落点元素就是它 / 互相包含」优先，坐标仅兜底
+
+**保留**：防自动聚焦的目的（composer 程序化 focus 仍会 blur，实测 `now:true → later:false`）、回车换行、防双指缩放、冷启动归位。
+
+### 三、查清但未改正文：长文本粘贴只剩最后一句（B）
+
+**结论：WebView/输入法层（C），不是本仓引入。**
+
+- 三条对照：桌面 Chromium 同样不截断；禁 `mobile.js` 后仍不截断；上游 `@deepseek-ai/dsh@0.2.0-rc.2` 的 `dsh-client-ui-conversation` **逐字一致**。
+- 唯一能稳定复现「只剩最后一段」的机制：输入法把整段长文本放进 composing 区后，**又把 composing 区重切成更短的一段**（`setComposingText` 是替换语义）。210 字 → 只剩 5 字「（第5段）」，与现象吻合。
+- 上游无长度阈值、无粘贴转附件。
+
+**兜底（只检测不改正文）**：`mobile.js` 新增 v1.0 检测段 —— 一次 composition 会话内最长 composing ≥ 200 字、且提交结果是它的真后缀且不到一半 → 判截断，记 `window.__dshPasteTruncation` + `console.warn` + 派发 `dsh:paste-truncated`。正常拼音/手写纠错不会命中（提交结果不是 composing 文本的后缀）。**不 preventDefault、不补文本** —— 补文本会与 IME 组词冲突，产生重复内容。
+
+### 四、文件
+
+| 文件 | 改动 |
+|---|---|
+| `dsh-patches/overlay/.../dsh-client-ui-layout/lib/client.js` | 抽屉包裹结构由条件改为恒定（同步 `devhome` 构建源） |
+| `mobile-patch/mobile.js` | 防自动聚焦判定改成「落点元素优先 + 只限 composer」；新增粘贴截断检测段 |
+| `android-app/assets/mobile.js` | 与 mobile-patch 逐字同步（md5 一致） |
+| `android-app/assets/mobile.css` | 无改动 |
+
+---
+
 ## v1.19.6（正式版 + Lite 共存版 + 兼容版 · 2026-10-05）
 
 > ⚠️ **这是 v1.19.1 之后的第一次发布**，内容覆盖 **v1.19.2 + v1.19.3 + v1.19.4 + v1.19.5 + v1.19.6** 五级
