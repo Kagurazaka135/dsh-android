@@ -58,3 +58,6 @@ memory/摸清报告.md
 验收-*.md
 任务书-*.md
 测试方案.md
+
+# 取证原件（logcat 全量 dump、cookie、大文件；只留本机，报告里引用即可）
+取证-*-evidence/
