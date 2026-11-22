@@ -66,6 +66,9 @@
 | `woaiys3-app/plugins/dsh-tool-voice/` | **语音插件**（8 个 AI 工具） |
 | `memory/` | **记忆插件**（独立成库：[dsh-memory](https://github.com/Kagurazaka135/dsh-memory) 的一份副本） |
 | `docs/` | 设计 / 磁盘限制 / 语音模块说明 |
+| `docs/audit/` | **审计与实证报告**（模型权限、厂商对照、临时文件治理等） |
+| `docs/reports/` | 真机测试报告、交付报告、验收记录 |
+| `docs/internal/` | 施工计划、内部工具 prompt |
 | `scripts/` | 构建辅助（挖 devhome 等） |
 | `build.sh` | 一键构建入口 |
 
